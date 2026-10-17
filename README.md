@@ -6,7 +6,7 @@ Sayboard is a free, open-source AAC communication board. Tap a word or symbol to
 
 Use the free app at [sayboard.org](https://sayboard.org). It works without an account. Boards save on the current device, and JSON import and export remain free.
 
-The [teacher pilot](https://classroom.sayboard.org/teacher.html) adds classrooms, learner aliases, board drafts, published versions and device linking. Pair each learner's device once, then publish updates from the teacher dashboard. Linked devices save and apply publications automatically when communication is idle, and report receipt to the teacher. The pilot is invite-only. Organisers can email private invitations, and teachers choose their own passwords. The dashboard, authentication and database all run on a standalone VPS. All product code stays open source, and official hosting prices will follow the pilot. See [the pilot workflow](docs/TEACHER-PILOT.md).
+The [teacher pilot](https://classroom.sayboard.org/teacher) adds classrooms, learner aliases, board drafts, published versions and device linking. Pair each learner's device once, then publish updates from the teacher dashboard. Linked devices save and apply publications automatically when communication is idle, and report receipt to the teacher. The pilot is invite-only. Organisers can email private invitations, and teachers choose their own passwords. The dashboard, authentication and database all run on a standalone VPS. All product code stays open source, and official hosting prices will follow the pilot. See [the pilot workflow](docs/TEACHER-PILOT.md).
 
 ## Run locally
 

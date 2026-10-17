@@ -175,7 +175,7 @@ export function createInvitationsPanel() {
         const url = new URL(text(response.url, 400));
         if (
           url.origin !== location.origin ||
-          url.pathname !== "/teacher.html" ||
+          url.pathname !== "/teacher" ||
           !/^#activate=[a-f0-9]{64}$/.test(url.hash)
         )
           throw new Error("The invitation response was invalid.");

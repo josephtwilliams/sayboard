@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, request } from "playwright";
 import { checkClassroomFlow } from "../tests/classroom-flow.browser.mjs";
+import { checkTeacherRoutes } from "../tests/teacher-routes.browser.mjs";
 import { checkTeacherOnboarding } from "../tests/teacher-onboarding.browser.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -282,6 +283,7 @@ try {
   ]) {
     const classroomBrowser = await type.launch();
     try {
+      await checkTeacherRoutes({ browser: classroomBrowser, origin });
       report.classrooms.push(
         await checkClassroomFlow({
           browser: classroomBrowser,

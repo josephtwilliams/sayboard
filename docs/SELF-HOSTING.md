@@ -39,7 +39,7 @@ To reset an existing account, replace `create teacher` with `reset-password teac
 
 Open the site, enter caregiver mode, expand **Backup and transfer**, and sign in. Choose explicitly when to save or load a copy. Saving an account copy does not replace the working local board. A loaded copy first becomes a caregiver draft; **Save board** applies it to the device.
 
-The teacher dashboard is `/teacher.html`. Its [classroom workflow](TEACHER-PILOT.md) uses the same adult account, separate classroom drafts and scoped device links. Classroom storage requires SQLite.
+The teacher dashboard is `/teacher`. Its [classroom workflow](TEACHER-PILOT.md) uses the same adult account, separate classroom drafts and scoped device links. Classroom storage requires SQLite.
 
 ### Invite-only onboarding and email
 

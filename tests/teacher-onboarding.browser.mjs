@@ -30,7 +30,7 @@ export async function checkTeacherOnboarding({
   const invited = "invited_" + engine;
   const newPassword = "Synthetic invitation password " + engine;
   const signIn = async (target, user, secret) => {
-    await target.goto(origin + "/teacher.html");
+    await target.goto(origin + "/teacher");
     await target.getByLabel("Teacher username", { exact: true }).fill(user);
     await target.getByLabel("Password", { exact: true }).fill(secret);
     await target.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -50,6 +50,7 @@ export async function checkTeacherOnboarding({
     const link = await page
       .getByLabel("Private invitation link", { exact: true })
       .inputValue();
+    assert.equal(new URL(link).pathname, "/teacher");
     assert.match(new URL(link).hash, /^#activate=[a-f0-9]{64}$/);
     await join.goto(link);
     await join

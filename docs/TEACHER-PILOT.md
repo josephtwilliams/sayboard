@@ -1,6 +1,6 @@
 # Teacher pilot
 
-The pilot runs the complete app, authentication, dashboard and SQLite database on one VPS. The official free app is [sayboard.org](https://sayboard.org). Use [classroom.sayboard.org/teacher.html](https://classroom.sayboard.org/teacher.html) for the hosted pilot. Independent installations use their own hostname and `/teacher.html`.
+The pilot runs the complete app, authentication, dashboard and SQLite database on one VPS. The official free app is [sayboard.org](https://sayboard.org). Use [classroom.sayboard.org/teacher](https://classroom.sayboard.org/teacher) for the hosted pilot. Independent installations use their own hostname and `/teacher`.
 
 ## First classroom
 

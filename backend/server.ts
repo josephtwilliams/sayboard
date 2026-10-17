@@ -105,10 +105,23 @@ export async function startServer(env: NodeJS.ProcessEnv) {
           : await accounts(request, forwarded);
     } else if (!["GET", "HEAD"].includes(request.method)) {
       response = json(405, "method_not_allowed");
+    } else if (["/teacher.html", "/teacher/"].includes(url.pathname)) {
+      response = new Response(null, {
+        status: 308,
+        headers: {
+          Location: "/teacher" + url.search,
+          "Cache-Control": "no-cache",
+        },
+      });
     } else {
       try {
         const decoded = decodeURIComponent(url.pathname);
-        const path = decoded.endsWith("/") ? decoded + "index.html" : decoded;
+        const path =
+          decoded === "/teacher"
+            ? "/teacher.html"
+            : decoded.endsWith("/")
+              ? decoded + "index.html"
+              : decoded;
         if (
           path.includes("\\") ||
           path.split("/").some((part) => part.startsWith("."))

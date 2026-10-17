@@ -2,6 +2,28 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "redirects": [
     {
+      "source": "/teacher",
+      "has": [
+        {
+          "type": "host",
+          "value": "sayboard.org"
+        }
+      ],
+      "destination": "https://classroom.sayboard.org/teacher",
+      "permanent": true
+    },
+    {
+      "source": "/teacher",
+      "has": [
+        {
+          "type": "host",
+          "value": "sayboard.vercel.app"
+        }
+      ],
+      "destination": "https://classroom.sayboard.org/teacher",
+      "permanent": true
+    },
+    {
       "source": "/teacher.html",
       "has": [
         {
@@ -9,7 +31,7 @@
           "value": "sayboard.org"
         }
       ],
-      "destination": "https://classroom.sayboard.org/teacher.html",
+      "destination": "https://classroom.sayboard.org/teacher",
       "permanent": true
     },
     {
@@ -20,7 +42,17 @@
           "value": "sayboard.vercel.app"
         }
       ],
-      "destination": "https://classroom.sayboard.org/teacher.html",
+      "destination": "https://classroom.sayboard.org/teacher",
+      "permanent": true
+    },
+    {
+      "source": "/teacher.html",
+      "destination": "/teacher",
+      "permanent": true
+    },
+    {
+      "source": "/teacher/",
+      "destination": "/teacher",
       "permanent": true
     },
     {
@@ -33,6 +65,12 @@
       ],
       "destination": "https://sayboard.org/:path",
       "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/teacher",
+      "destination": "/teacher.html"
     }
   ]
 }

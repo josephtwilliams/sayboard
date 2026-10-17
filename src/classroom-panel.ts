@@ -120,8 +120,8 @@ export function createClassroomPanel({
       "www.sayboard.org",
       "sayboard.vercel.app",
     ].includes(location.hostname)
-      ? "https://classroom.sayboard.org/teacher.html"
-      : "/teacher.html";
+      ? "https://classroom.sayboard.org/teacher"
+      : "/teacher";
     content.append(dashboard);
     if (busy)
       section

@@ -146,7 +146,7 @@ export async function checkClassroomFlow({
       .click();
   };
   try {
-    await page.goto(origin + "/teacher.html");
+    await page.goto(origin + "/teacher");
     await page.getByLabel("Teacher username", { exact: true }).fill(username);
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -658,7 +658,7 @@ export async function checkClassroomFlow({
       ).status(),
       200,
     );
-    await page.goto(origin + "/teacher.html");
+    await page.goto(origin + "/teacher");
     await page
       .getByRole("heading", { name: "Your classrooms", exact: true })
       .waitFor();

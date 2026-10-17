@@ -329,7 +329,7 @@ export async function createApi(
           tokenHash(token),
           now(),
         );
-        const url = `${config.origin}/teacher.html#activate=${token}`;
+        const url = `${config.origin}/teacher#activate=${token}`;
         let emailStatus: "not_requested" | "accepted" | "failed" =
           "not_requested";
         if (email && mail) {

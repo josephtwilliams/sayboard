@@ -35,7 +35,7 @@ it("creates accessible transactional HTML and plain text without remote tracking
     kind: "invite",
     expiresAt: Date.UTC(2030, 0, 1),
     url:
-      "https://classroom.example.test/teacher.html#activate=" + "a".repeat(64),
+      "https://classroom.example.test/teacher#activate=" + "a".repeat(64),
   });
   expect(message.text).toContain("Teacher username: demo<&");
   expect(message.html).toContain("demo&lt;&amp;");

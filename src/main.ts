@@ -61,7 +61,7 @@ let teacherSaving = false;
 function teacherDashboard() {
   const classroom = teacherParameters.get("classroom");
   return (
-    "/teacher.html" +
+    "/teacher" +
     (classroom && teacherEditing
       ? `#${encodeURIComponent(classroom)}/${teacherEditing.id}`
       : "")
@@ -1597,7 +1597,7 @@ if (teacherBoardRequest) {
         ),
       );
       const back = el("a", "button", "Open teacher workspace");
-      back.href = "/teacher.html";
+      back.href = "/teacher";
       root.append(back);
     }
   })();

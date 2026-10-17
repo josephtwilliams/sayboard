@@ -208,7 +208,7 @@ export async function checkClassroomFlow({
       await page
         .getByRole("button", { name: "Save classroom draft", exact: true })
         .click();
-      await page.waitForURL(/\/teacher\.html#/);
+      await page.waitForURL(/\/teacher#/);
       await page
         .getByRole("heading", { name: "Demo learner", exact: true })
         .waitFor();

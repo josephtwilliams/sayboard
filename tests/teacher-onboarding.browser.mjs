@@ -52,7 +52,11 @@ export async function checkTeacherOnboarding({
       .inputValue();
     assert.equal(new URL(link).pathname, "/teacher");
     assert.match(new URL(link).hash, /^#activate=[a-f0-9]{64}$/);
-    await join.goto(link);
+    // Previously emailed links must still open the same activation flow.
+    const legacyLink = new URL(link);
+    legacyLink.pathname = "/teacher.html";
+    await join.goto(legacyLink.href);
+    assert.equal(new URL(join.url()).pathname, "/teacher");
     await join
       .getByRole("heading", { name: "Welcome to Sayboard", exact: true })
       .waitFor();
@@ -165,8 +169,14 @@ export async function checkTeacherOnboarding({
   } catch (error) {
     if (artifactDirectory) {
       await mkdir(artifactDirectory, { recursive: true });
-      await page.screenshot({ path: artifactDirectory + `/organiser-failure-${engine}.png`, fullPage: true });
-      await writeFile(artifactDirectory + `/organiser-failure-${engine}.txt`, await page.locator("body").innerText());
+      await page.screenshot({
+        path: artifactDirectory + `/organiser-failure-${engine}.png`,
+        fullPage: true,
+      });
+      await writeFile(
+        artifactDirectory + `/organiser-failure-${engine}.txt`,
+        await page.locator("body").innerText(),
+      );
     }
     throw error;
   } finally {

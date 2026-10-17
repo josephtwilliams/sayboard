@@ -2,6 +2,8 @@
 
 Sayboard is a free, open-source AAC communication board. Tap a word or symbol to speak, or type a message to say. Create categories and arrange tiles with the person who uses the board.
 
+![Sayboard's starter board with large word and symbol tiles, a Drink category, and a type-and-speak field.](docs/images/sayboard.png)
+
 The communication app works without an account. Boards save on the current device, and JSON import and export remain free. Optional account hosting stores board backups on a server you control. A teacher dashboard and paid official classroom hosting are planned. All product code stays open source, and pricing will follow a teacher pilot.
 
 ## Run locally

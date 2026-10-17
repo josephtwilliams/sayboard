@@ -17,6 +17,8 @@ Open `http://127.0.0.1:5188`. No account or environment file is needed. See [sel
 
 Use an issue to explain the problem and who it affects. Discuss substantial changes to communication controls, access methods or cloud permissions before implementation. Small fixes can go straight to a pull request.
 
+Changes to `main` require a pull request, passing checks and approval from `@josephtwilliams`, the code owner for all files. New commits dismiss earlier approvals. The maintainer can merge their own pull requests without a second reviewer, but the required checks still apply. Force pushes and deletion of `main` are blocked.
+
 Use synthetic vocabulary and demonstration accounts in issues, screenshots, fixtures and logs. Never include a person's real communication board, recordings, student details, credentials or database exports. Report security vulnerabilities through the [private reporting route](SECURITY.md).
 
 Treat contributors and AAC users with respect. Describe observable problems and avoid assumptions about a person's communication ability.

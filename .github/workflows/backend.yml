@@ -1,20 +1,8 @@
 name: Backend checks
 on:
   pull_request:
-    paths:
-      - "backend/**"
-      - "src/board.ts"
-      - "package*.json"
-      - "tsconfig.json"
-      - ".github/workflows/backend.yml"
   push:
     branches: [main]
-    paths:
-      - "backend/**"
-      - "src/board.ts"
-      - "package*.json"
-      - "tsconfig.json"
-      - ".github/workflows/backend.yml"
 permissions:
   contents: read
 jobs:

@@ -1,0 +1,36 @@
+{
+  "expected": [
+    {
+      "release": "355a3f37b859ff80a9f612a921d6fef379463b7d2bc687ccf881e25b26d2c0f5",
+      "manifestSha256": "0f40d725680bd9936202f59b66092088629695b8df56c7ed2907bdca82feb8a1"
+    },
+    {
+      "release": "3c5ec76fd54312bccc40b7cca6545cdcf1832144c16505c7b3eed562e11cacac",
+      "manifestSha256": "7838e8ba74bb662817f62dbb3ec91bed05a1a78ceaf746761cc61a772a347b9b"
+    },
+    {
+      "release": "5d0d9407ac0b4ba691ce6cf116a275b43ff02a1410ce1cd2b3f1a86f934ac82a",
+      "manifestSha256": "19ef3ddf22497484baab86e03d9f077a1d7cea0042596354e863cbebceff4166"
+    },
+    {
+      "release": "77a48a6d60e029b98e18ed9bd97c5880a18a76a4add75dba238c77ed0abded11",
+      "manifestSha256": "c5f82489b0ea5e7fabdc7bf9a1507c49c00d4742622f4757419996ad95a81fd3"
+    },
+    {
+      "release": "8b054a8f239c7edb2a01cdf882467bb016915f50875934b02d8785099929dbbf",
+      "manifestSha256": "07d79c0278a6f8c261f0eab3b00df0f4642828ddb7833a5de977d90dbd882f8a"
+    },
+    {
+      "release": "951a0ff331e64cc80b8f79690f4d4d65f68acd93eefe808ae10e17677ce5d6b4",
+      "manifestSha256": "18c9bdd4cd5dce8584b92af9f16f381d11462457cf644c6f4a22dbd6ef07d9fa"
+    },
+    {
+      "release": "e14b1bc312f08b854ceadd07aa22b069fe00c78043e26edc06ef7587e15bc18d",
+      "manifestSha256": "4d287bcdd7c264c15548abd88f6ba162029804dde391520c4287c7ecdf79ce2a"
+    },
+    {
+      "release": "fff12dac32e6d180e042637fcd9e3f5b39ec990790d4d346de37bfa07aabb4e2",
+      "manifestSha256": "67a395cf755d9e0373aa6f5892f9bbe83ab030f509bd4789cf80c552548fac63"
+    }
+  ]
+}

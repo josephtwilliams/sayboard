@@ -88,3 +88,15 @@ For a free server without accounts, set `SAYBOARD_AUTH_ENABLED=0` and omit datab
 Run `npm run build`, then serve the complete `dist/` directory with any static HTTPS server. Keep `/source/` and every older source release that the instance has served. Serve `.wasm` as `application/wasm`. Local preview is `npm run preview -- --port 5189`.
 
 A static host does not back up boards. Changing hostname or browser profile changes where local boards are stored. Export before moving. The optional voice model downloads from pinned public URLs on demand; device speech does not need that model. Offline page startup and actual audio need verification on the intended device.
+
+### Official static website
+
+The official free website can continue on Vercel while account hosting runs separately on a VPS. Vercel serves the browser app and does not supply its storage or authentication. Independent builds keep the default empty source-retention policy and need no connection to the official website.
+
+The existing official site has already published source archives. Its Vercel project uses `npm ci --ignore-scripts`, output directory `dist`, and this build command:
+
+```sh
+SAYBOARD_SOURCE_ORIGIN=https://sayboard.vercel.app SAYBOARD_SOURCE_POLICY=deploy/official-source-policy.json npm run build
+```
+
+The operator-owned policy records the source releases that must remain available on that website. The build imports its existing archives and rejects missing or changed required releases. It does not put a Vercel dependency in the application. Before replacing the production deployment, verify every previously served manifest and archive remains accessible. Keep external-fork deployment authorization enabled in Vercel.

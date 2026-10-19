@@ -405,6 +405,77 @@ try {
     results.push({ viewport, passed: true });
     await page.close();
   }
+  // Voices that arrive after startup without voiceschanged still reach the picker.
+  const voicePage = await browser.newPage();
+  voicePage.setDefaultTimeout(5000);
+  const voiceErrors = [];
+  voicePage.on("pageerror", (e) => voiceErrors.push(e.message));
+  await voicePage.addInitScript(
+    (value) => {
+      localStorage.setItem("sayboard-v2", JSON.stringify(value));
+      window.__voices = [];
+      Object.defineProperty(window, "speechSynthesis", {
+        value: {
+          getVoices: () => window.__voices,
+          addEventListener: () => {},
+          cancel: () => {},
+          speak: () => {},
+        },
+      });
+    },
+    { ...fixture, voice: "late-saved" },
+  );
+  await voicePage.goto(origin);
+  await voicePage
+    .getByRole("button", { name: "Caregiver controls", exact: true })
+    .click();
+  await voicePage.evaluate(() => {
+    window.__voices = [
+      {
+        voiceURI: "late-other",
+        name: "Other",
+        lang: "en-US",
+        localService: true,
+      },
+      {
+        voiceURI: "late-saved",
+        name: "Saved",
+        lang: "en-GB",
+        localService: true,
+      },
+    ];
+  });
+  await voicePage
+    .getByRole("button", { name: "Edit board and settings", exact: true })
+    .click();
+  await voicePage
+    .getByText("Voice and speaking speed", { exact: true })
+    .click();
+  const voiceSelect = voicePage.getByLabel(
+    "Device voice for speech and fallback",
+  );
+  assert.deepEqual(
+    await voiceSelect
+      .locator("option")
+      .evaluateAll((options) => options.map((option) => option.value)),
+    ["", "late-other", "late-saved"],
+  );
+  assert.equal(await voiceSelect.inputValue(), "late-saved");
+  await voiceSelect.selectOption("late-other");
+  await voicePage
+    .getByRole("button", { name: "Save board", exact: true })
+    .click();
+  await voicePage
+    .getByRole("button", { name: "Caregiver controls", exact: true })
+    .waitFor();
+  assert.equal(
+    await voicePage.evaluate(
+      () => JSON.parse(localStorage.getItem("sayboard-v2")).voice,
+    ),
+    "late-other",
+  );
+  assert.deepEqual(voiceErrors, []);
+  await voicePage.close();
   console.log(JSON.stringify(results, null, 2));
 } finally {
   await browser.close();

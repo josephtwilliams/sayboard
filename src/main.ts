@@ -942,6 +942,8 @@ function renderEditor(shell: HTMLElement, working: Board) {
   select.setAttribute("aria-label", "Device voice for speech and fallback");
   select.id = "voice";
   select.append(new Option("Automatic on-device voice", ""));
+  // Some devices populate voices after startup without a voiceschanged event.
+  if (supported) voices = window.speechSynthesis.getVoices();
   voices.forEach((v) =>
     select.append(
       new Option(

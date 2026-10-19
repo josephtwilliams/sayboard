@@ -19,6 +19,7 @@ let downloading = true;
 let downloadedBytes = 0;
 let lastProgress = 0;
 const seen = new Set<string>();
+let downloadFailed = false;
 
 env.allowLocalModels = false;
 env.useBrowserCache = false;
@@ -30,7 +31,7 @@ wasm.proxy = false;
 wasm.wasmPaths = { wasm: wasmUrl, mjs: mjsUrl };
 env.remotePathTemplate = `{model}/resolve/${MODEL_REVISION}/`;
 
-globalThis.fetch = async (input, init) => {
+const assetFetch: typeof fetch = async (input, init) => {
   const requested = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const url = pinnedAsset(requested);
   if (!url) {
@@ -41,7 +42,8 @@ globalThis.fetch = async (input, init) => {
   if (stored) return stored;
   if (!downloading) throw new Error('Speech assets unavailable offline');
   const response = await networkFetch(url, { ...init, credentials: 'omit', referrerPolicy: 'no-referrer' });
-  if (!response.ok || !response.body) throw new Error('Speech asset download failed');
+  // A web filter or captive portal page is never a model file, so it is not cached.
+  if (!response.ok || !response.body || /^text\/html/i.test(response.headers.get('content-type') ?? '')) throw new Error('Speech asset download failed');
   const chunks: Uint8Array[] = [];
   const reader = response.body.getReader();
   let length = 0;
@@ -65,6 +67,11 @@ globalThis.fetch = async (input, init) => {
   seen.add(url);
   return complete;
 };
+// Notes failed downloads. Only complete files are cached, so a dropped connection must not clear them.
+globalThis.fetch = (input, init) => assetFetch(input, init).then(response => {
+  if (!response.ok) downloadFailed = true;
+  return response;
+}, error => { downloadFailed = true; throw error; });
 
 async function load() {
   try {
@@ -77,10 +84,16 @@ async function load() {
       for (const request of await cache.keys()) if (pinnedAsset(request.url) !== request.url) await cache.delete(request);
     }
   } catch { cache = null; }
-  // Download the voice too before announcing ready. Generate will make no network requests.
-  await fetch(`https://huggingface.co/${MODEL_ID}/resolve/${MODEL_REVISION}/voices/af_heart.bin`);
-  model = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm' });
-  await model.generate('Yes', { voice: 'af_heart', speed: 1 });
+  try {
+    // Download the voice too before announcing ready. Generate will make no network requests.
+    await fetch(`https://huggingface.co/${MODEL_ID}/resolve/${MODEL_REVISION}/voices/af_heart.bin`);
+    model = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm' });
+    await model.generate('Yes', { voice: 'af_heart', speed: 1 });
+  } catch (error) {
+    // A cached error page or truncated file would fail every later load, so the next load downloads afresh.
+    if (!downloadFailed && storage) await Promise.all([storage.delete(MODEL_CACHE), storage.delete(VOICE_CACHE)]).catch(() => {});
+    throw error;
+  }
   downloading = false;
   send({ kind: 'ready', bytes: downloadedBytes, assets: MODEL_FILES.length, fetched: seen.size });
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AccountError, createAccountClient } from "../src/account";
 import { starterBoard, type Board } from "../src/board";
 
@@ -79,7 +79,11 @@ describe("same-origin account client contract", () => {
     expect(calls).toEqual([
       {
         path: "/api/auth/capabilities",
-        options: { cache: "no-store", credentials: "same-origin" },
+        options: {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: expect.any(AbortSignal),
+        },
       },
     ]);
   });
@@ -252,6 +256,50 @@ describe("same-origin account client contract", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("times out a stalled request and releases the operation lock", async () => {
+    vi.useFakeTimers();
+    // Node's AbortSignal.timeout ignores fake timers, so drive it from setTimeout.
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) => {
+        const controller = new AbortController();
+        setTimeout(
+          () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+          ms,
+        );
+        return controller.signal;
+      });
+    try {
+      const calls: (RequestInfo | URL)[] = [];
+      const client = createAccountClient(async (path, options) => {
+        calls.push(path);
+        if (calls.length > 1) return json(sessionResponse);
+        return new Promise<Response>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () =>
+            reject(options.signal?.reason),
+          );
+        });
+      });
+      let outcome: unknown = "pending";
+      void client.restoreSession().then(
+        () => (outcome = "resolved"),
+        (error: unknown) => (outcome = error),
+      );
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect(outcome).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(outcome).toMatchObject({
+        status: 0,
+        message: expect.stringContaining("could not be reached"),
+      });
+      await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
+      expect(calls).toHaveLength(2);
+    } finally {
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("logs in with exact credentials JSON and does not read or upload a board", async () => {
     const { client, calls } = fixture(json(sessionResponse));
     expect(await client.login("caregiver-test", "test-password")).toEqual(
@@ -264,6 +312,7 @@ describe("same-origin account client contract", () => {
         options: {
           method: "POST",
           credentials: "same-origin",
+          signal: expect.any(AbortSignal),
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             username: "caregiver-test",
@@ -280,7 +329,10 @@ describe("same-origin account client contract", () => {
     expect(calls).toEqual([
       {
         path: "/api/auth/session",
-        options: { credentials: "same-origin" },
+        options: {
+          credentials: "same-origin",
+          signal: expect.any(AbortSignal),
+        },
       },
     ]);
   });
@@ -306,6 +358,7 @@ describe("same-origin account client contract", () => {
       options: {
         method: "POST",
         credentials: "same-origin",
+        signal: expect.any(AbortSignal),
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": "csrf-test-only",
@@ -332,6 +385,7 @@ describe("same-origin account client contract", () => {
       options: {
         method: "PUT",
         credentials: "same-origin",
+        signal: expect.any(AbortSignal),
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": "csrf-test-only",
@@ -343,11 +397,15 @@ describe("same-origin account client contract", () => {
       board,
       revision: 0,
     });
-    expect(calls[1]).toEqual({
+    const boardRead = {
       path: "/api/board",
-      options: { credentials: "same-origin" },
-    });
-    expect(calls[3]).toEqual(calls[1]);
+      options: {
+        credentials: "same-origin",
+        signal: expect.any(AbortSignal),
+      },
+    };
+    expect(calls[1]).toEqual(boardRead);
+    expect(calls[3]).toEqual(boardRead);
     expect(board).toEqual(original);
   });
 

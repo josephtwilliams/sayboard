@@ -94,6 +94,7 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
       response = await fetcher(path, {
         ...options,
         credentials: "same-origin",
+        signal: AbortSignal.timeout(20_000),
       });
     } catch {
       throw new AccountError(

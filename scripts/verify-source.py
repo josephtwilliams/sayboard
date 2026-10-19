@@ -41,7 +41,16 @@ def main():
                     raise ValueError("Unexpected frontend archive entry: " + member.name)
                 if relative.startswith("backend/") or scan_bytes(archive.extractfile(member).read()):
                     raise ValueError("Private content needs review in " + member.name)
-            archive.extractall(destination, filter="data")
+            if hasattr(tarfile, "data_filter"):
+                archive.extractall(destination, filter="data")
+            else:
+                # Python without tar extraction filters: every member was checked
+                # above as a regular file at a safe relative path, so write only
+                # its contents and ignore archive modes and owners.
+                for member in members:
+                    target = destination.joinpath(*PurePosixPath(member.name).parts)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(archive.extractfile(member).read())
         packages = list(destination.glob("*/package.json"))
         if len(packages) != 1:
             raise ValueError("Expected one standalone frontend package")

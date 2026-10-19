@@ -18,6 +18,7 @@ import { loadTheme, applyTheme } from "./theme";
 import { createLocalSpeech } from "./speech/local-speech";
 import { createCategoryNavigation } from "./category-navigation";
 import {
+  currentBoardKey,
   loadStoredBoard,
   saveStoredBoard,
   serializeBoard,
@@ -72,8 +73,10 @@ let board = starterBoard();
 let storageError = "";
 let storageBlocked = false;
 let hasStoredBoard = false;
+let storedBoardValue: string | null = null;
 let replacementAuthorizedDraft: Board | null = null;
 try {
+  storedBoardValue = localStorage.getItem(currentBoardKey);
   const loaded = loadStoredBoard(localStorage);
   if (loaded.kind === "loaded") {
     board = loaded.board;
@@ -292,7 +295,14 @@ function persist(next: Board) {
     return false;
   }
   try {
-    saveStoredBoard(localStorage, next);
+    // Edits opened before another tab saved would replace its newer board.
+    const current = localStorage.getItem(currentBoardKey);
+    if (current !== null && current !== storedBoardValue) {
+      storageError =
+        "A newer board was saved in another tab or window. Reload this page before saving here.";
+      return false;
+    }
+    storedBoardValue = saveStoredBoard(localStorage, next);
     board = next;
     storageError = "";
     storageBlocked = false;
@@ -314,6 +324,26 @@ function persist(next: Board) {
     return false;
   }
 }
+// Follow saves from other tabs. Open edits keep their base and persist refuses them.
+window.addEventListener("storage", (event) => {
+  if (
+    event.key !== currentBoardKey ||
+    event.newValue === null ||
+    teacherBoardRequest ||
+    draft ||
+    arrangement
+  )
+    return;
+  try {
+    board = parseBoard(JSON.parse(event.newValue));
+  } catch {
+    return;
+  }
+  storedBoardValue = event.newValue;
+  storageError = "";
+  storageBlocked = false;
+  render();
+});
 function exportBoard(value: Board) {
   try {
     const url = URL.createObjectURL(
@@ -1624,7 +1654,7 @@ if (teacherBoardRequest) {
     apply: (publication) => {
       if (!publication.board) return false;
       try {
-        saveStoredBoard(localStorage, publication.board);
+        storedBoardValue = saveStoredBoard(localStorage, publication.board);
         board = structuredClone(publication.board);
         hasStoredBoard = true;
         storageError = "";

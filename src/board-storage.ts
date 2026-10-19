@@ -39,7 +39,7 @@ export function loadStoredBoard(storage: BoardStorage): LoadedBoard {
 }
 
 /** Never mutate the original version-1 entry. Preserve an unreadable v2 copy before replacement. */
-export function saveStoredBoard(storage: BoardStorage, board: Board): void {
+export function saveStoredBoard(storage: BoardStorage, board: Board): string {
   const serialized = serializeBoard(board);
   const current = storage.getItem(currentBoardKey);
   if (current !== null) {
@@ -50,4 +50,5 @@ export function saveStoredBoard(storage: BoardStorage, board: Board): void {
     }
   }
   storage.setItem(currentBoardKey, serialized);
+  return serialized;
 }

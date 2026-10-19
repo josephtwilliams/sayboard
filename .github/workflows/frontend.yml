@@ -61,6 +61,7 @@ jobs:
       - run: node tests/browser/fullscreen-app.mjs
       - run: node tests/compact-layout.browser.mjs
       - run: node tests/navigation-layout.browser.mjs
+      - run: node tests/stale-tab.browser.mjs
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

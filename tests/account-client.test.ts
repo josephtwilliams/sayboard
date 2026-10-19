@@ -375,40 +375,86 @@ describe("same-origin account client contract", () => {
     expect(calls).toHaveLength(2);
   });
 
-  it.each(["save", "logout"])(
-    "recovers a rotated-cookie stale-CSRF 403 during %s without retrying",
-    async (operation) => {
-      const board = customBoard();
-      const original = structuredClone(board);
-      const refreshedSession = {
-        ...sessionResponse,
-        csrfToken: "rotated-csrf-test-only",
-      };
-      const { client, calls } = fixture(
-        json(sessionResponse),
-        json({}, 403),
-        json(refreshedSession),
-      );
-      await client.login("caregiver-test", "test-password");
-      await expect(
-        operation === "save" ? client.saveBoard(board, 7) : client.logout(),
-      ).rejects.toMatchObject({ status: 403 });
-      expect(client.currentSession()).toBeNull();
-      expect(calls).toHaveLength(2);
-      expect(board).toEqual(original);
-      expect(calls[1].options?.headers).toMatchObject({
-        "X-CSRF-Token": sessionResponse.csrfToken,
-      });
-      await expect(client.restoreSession()).resolves.toEqual(refreshedSession);
-      expect(client.currentSession()).toEqual(refreshedSession);
-      expect(calls.map((call) => call.path)).toEqual([
-        "/api/auth/login",
-        operation === "save" ? "/api/board" : "/api/auth/logout",
-        "/api/auth/session",
-      ]);
-      expect(board).toEqual(original);
-    },
-  );
+  it("recovers a rotated-cookie stale-CSRF 403 during save without retrying", async () => {
+    const board = customBoard();
+    const original = structuredClone(board);
+    const refreshedSession = {
+      ...sessionResponse,
+      csrfToken: "rotated-csrf-test-only",
+    };
+    const { client, calls } = fixture(
+      json(sessionResponse),
+      json({}, 403),
+      json(refreshedSession),
+    );
+    await client.login("caregiver-test", "test-password");
+    await expect(client.saveBoard(board, 7)).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(client.currentSession()).toBeNull();
+    expect(calls).toHaveLength(2);
+    expect(board).toEqual(original);
+    expect(calls[1].options?.headers).toMatchObject({
+      "X-CSRF-Token": sessionResponse.csrfToken,
+    });
+    await expect(client.restoreSession()).resolves.toEqual(refreshedSession);
+    expect(client.currentSession()).toEqual(refreshedSession);
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/auth/login",
+      "/api/board",
+      "/api/auth/session",
+    ]);
+    expect(board).toEqual(original);
+  });
+
+  it("refreshes a rotated CSRF token and retries logout once so the server session ends", async () => {
+    const refreshedSession = {
+      ...sessionResponse,
+      csrfToken: "rotated-csrf-test-only",
+    };
+    const { client, calls } = fixture(
+      json(sessionResponse),
+      json({ error: "csrf_rejected" }, 403),
+      json(refreshedSession),
+      json({ ok: true }),
+    );
+    await client.login("caregiver-test", "test-password");
+    await expect(client.logout()).resolves.toBeUndefined();
+    expect(client.currentSession()).toBeNull();
+    expect(
+      calls.map((call) => [
+        call.path,
+        (call.options?.headers as Record<string, string> | undefined)?.[
+          "X-CSRF-Token"
+        ],
+      ]),
+    ).toEqual([
+      ["/api/auth/login", undefined],
+      ["/api/auth/logout", sessionResponse.csrfToken],
+      ["/api/auth/session", undefined],
+      ["/api/auth/logout", refreshedSession.csrfToken],
+    ]);
+  });
+
+  it("reports a logout that still fails and stays signed in", async () => {
+    const refreshedSession = {
+      ...sessionResponse,
+      csrfToken: "rotated-csrf-test-only",
+    };
+    const { client, calls } = fixture(
+      json(sessionResponse),
+      json({ error: "csrf_rejected" }, 403),
+      json(refreshedSession),
+      json({}, 503),
+    );
+    await client.login("caregiver-test", "test-password");
+    await expect(client.logout()).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining("Sign out did not finish"),
+    });
+    expect(client.currentSession()).toEqual(refreshedSession);
+    expect(calls).toHaveLength(4);
+  });
 
   it("reports unavailable storage without account fallback or successful sync", async () => {
     const { client, calls } = fixture(json({}, 503));

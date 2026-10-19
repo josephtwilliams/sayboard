@@ -11,7 +11,7 @@ export function createElement<K extends keyof HTMLElementTagNameMap>(
 
 export function createButton(
   label: string,
-  run: () => void,
+  run: (event: MouseEvent) => void,
   className = "button",
 ): HTMLButtonElement {
   const element = createElement("button", className, label);

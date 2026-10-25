@@ -287,3 +287,49 @@ it('uses device speech synchronously when prepared audio needs a suspended conte
   engine.speak('Help'); await flush(); expect(output.play).toHaveBeenCalledOnce();
   engine.dispose();
 });
+
+it('keeps a phrase that finishes after a newer tap for the next tap', async () => {
+  const finish: ((value: typeof audio) => void)[] = [];
+  const { engine, model, output } = fixture(() => new Promise(resolve => { finish.push(resolve); }));
+  await engine.loadModel(); engine.speak('I'); engine.speak('want');
+  finish[0](audio); await flush(); finish[1](audio); await flush();
+  expect(output.play).not.toHaveBeenCalled();
+  engine.speak('I'); await flush();
+  expect(model.generate).toHaveBeenCalledTimes(2); expect(output.play).toHaveBeenCalledOnce();
+});
+
+it('keeps the clip in progress when phrase preparation is stopped', async () => {
+  let finish: ((value: typeof audio) => void) | undefined;
+  const { engine, model, output } = fixture(() => new Promise(resolve => { finish = resolve; }));
+  await engine.loadModel(); const preparing = engine.preparePhrases(['Yes', 'No']);
+  engine.cancel(); finish?.(audio);
+  expect(await preparing).toEqual({ prepared: 0, cancelled: true });
+  engine.speak('Yes'); await flush();
+  expect(model.generate).toHaveBeenCalledOnce(); expect(output.play).toHaveBeenCalledOnce();
+});
+
+
+it('does not retain a speak result that resolves after disposal', async () => {
+  let finish: ((value: typeof audio) => void) | undefined;
+  const { engine, output } = fixture(() => new Promise(resolve => { finish = resolve; }));
+  const write = vi.spyOn(PhraseAudioCache.prototype, 'set');
+  try {
+    await engine.loadModel(); engine.speak('Help'); engine.dispose();
+    finish?.(audio); await flush();
+    expect(write).not.toHaveBeenCalled(); expect(output.play).not.toHaveBeenCalled();
+  } finally { write.mockRestore(); }
+});
+
+it('does not retain a preparation result that resolves after disposal', async () => {
+  let finish: ((value: typeof audio) => void) | undefined;
+  const { engine, model, output } = fixture(() => new Promise(resolve => { finish = resolve; }));
+  const write = vi.spyOn(PhraseAudioCache.prototype, 'set');
+  try {
+    await engine.loadModel(); const progress = vi.fn();
+    const preparing = engine.preparePhrases(['Yes', 'No'], 1, progress);
+    engine.dispose(); finish?.(audio);
+    expect(await preparing).toEqual({ prepared: 0, cancelled: true });
+    expect(write).not.toHaveBeenCalled(); expect(progress).not.toHaveBeenCalled();
+    expect(model.generate).toHaveBeenCalledOnce(); expect(output.play).not.toHaveBeenCalled();
+  } finally { write.mockRestore(); }
+});

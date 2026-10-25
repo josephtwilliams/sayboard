@@ -118,8 +118,10 @@ export class SpeechEngine {
             const key = JSON.stringify([model.identity, speed, text]);
             if (!this.cache.get(key)) {
               const audio = await model.generate(text, speed);
-              if (!current()) break;
+              if (this.disposed) break;
+              // Keep a clip that finishes after a tap or Stop for later taps.
               this.rememberAudio(key, audio);
+              if (!current()) break;
             }
             prepared++; progress(prepared);
           }
@@ -205,7 +207,7 @@ export class SpeechEngine {
         let audio = this.cache.get(key);
         if (!audio) {
           audio = await model.generate(text, guarded.rate ?? 1);
-          if (!current()) return;
+          if (this.disposed) return;
           this.rememberAudio(key, audio);
         }
         // A late result warms the cache, but must not speak a second time.

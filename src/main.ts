@@ -987,6 +987,37 @@ function focusEditorRow(index: number, preferred = "button") {
       .find((b) => !b.disabled)
       ?.focus();
 }
+function updateDeviceVoiceOptions(
+  select: HTMLSelectElement,
+  selectedVoice: string,
+) {
+  if (supported) voices = window.speechSynthesis.getVoices();
+  const options = [new Option("Automatic on-device voice", "")];
+  voices.forEach((voice) => {
+    const option = new Option(
+      `${voice.name} (${voice.lang}, ${voice.localService ? "on device" : "may use network"})`,
+      voice.voiceURI,
+    );
+    option.disabled = !voice.localService;
+    options.push(option);
+  });
+  // Focus and pointerdown can both precede opening the native picker. Avoid
+  // rebuilding unchanged options, which can interrupt an open picker.
+  if (
+    options.length !== select.options.length ||
+    options.some((option, index) => {
+      const current = select.options[index];
+      return (
+        current.value !== option.value ||
+        current.text !== option.text ||
+        current.disabled !== option.disabled
+      );
+    })
+  )
+    select.replaceChildren(...options);
+  if (select.value !== selectedVoice) select.value = selectedVoice;
+}
+
 function renderEditor(shell: HTMLElement, working: Board) {
   shell.classList.add("editor-workspace");
   const page = boardPage(working, activeBoardId);
@@ -1156,23 +1187,16 @@ function renderEditor(shell: HTMLElement, working: Board) {
   const select = el("select");
   select.setAttribute("aria-label", "Device voice for speech and fallback");
   select.id = "voice";
-  select.append(new Option("Automatic on-device voice", ""));
-  voices.forEach((v) =>
-    select.append(
-      new Option(
-        `${v.name} (${v.lang}, ${v.localService ? "on device" : "may use network"})`,
-        v.voiceURI,
-      ),
-    ),
-  );
-  Array.from(select.options).forEach((option) => {
-    if (
-      option.value &&
-      !voices.find((v) => v.voiceURI === option.value)?.localService
-    )
-      option.disabled = true;
+  // Some devices populate voices without a voiceschanged event, even after
+  // the editor or voice section has opened. Refresh without losing the draft.
+  const refreshVoices = () => updateDeviceVoiceOptions(select, working.voice);
+  refreshVoices();
+  voiceGroup.addEventListener("toggle", () => {
+    if (voiceGroup.open) refreshVoices();
   });
-  select.value = working.voice;
+  select.addEventListener("focus", refreshVoices);
+  select.addEventListener("pointerdown", refreshVoices);
+  select.addEventListener("keydown", refreshVoices);
   select.onchange = () => (working.voice = select.value);
   voiceLabel.append(select);
   const speedLabel = el("label", "", "Speaking speed");
@@ -1763,25 +1787,7 @@ if (supported) {
     voices = window.speechSynthesis.getVoices();
     if (draft) {
       const select = document.querySelector<HTMLSelectElement>("#voice");
-      if (select) {
-        select.replaceChildren(new Option("Automatic on-device voice", ""));
-        voices.forEach((v) =>
-          select.append(
-            new Option(
-              `${v.name} (${v.lang}, ${v.localService ? "on device" : "may use network"})`,
-              v.voiceURI,
-            ),
-          ),
-        );
-        Array.from(select.options).forEach((option) => {
-          if (
-            option.value &&
-            !voices.find((v) => v.voiceURI === option.value)?.localService
-          )
-            option.disabled = true;
-        });
-        select.value = draft.voice;
-      }
+      if (select) updateDeviceVoiceOptions(select, draft.voice);
     }
   };
   window.speechSynthesis.addEventListener("voiceschanged", refresh);

@@ -19,6 +19,40 @@ def assets(directory):
             for path in directory.rglob("*") if path.is_file()}
 
 
+def extract_frontend(archive, destination):
+    """Validate every entry before extraction, on every supported platform."""
+    destination = destination.resolve()
+    members = archive.getmembers()
+    targets = []
+    for member in members:
+        path = PurePosixPath(member.name)
+        relative = PurePosixPath(*path.parts[1:]).as_posix()
+        # Tar names are POSIX paths. Backslashes and colons can instead become
+        # separators, rooted paths, drive changes or alternate streams on Windows.
+        if (path.is_absolute() or ".." in path.parts or "\\" in member.name
+                or ":" in member.name or not member.isfile() or forbidden_path(relative)):
+            raise ValueError("Unexpected frontend archive entry: " + member.name)
+        target = destination.joinpath(*path.parts).resolve()
+        try:
+            target.relative_to(destination)
+        except ValueError:
+            raise ValueError("Frontend archive entry escapes destination: " + member.name) from None
+        if target == destination:
+            raise ValueError("Unexpected frontend archive entry: " + member.name)
+        if relative.startswith("backend/") or scan_bytes(archive.extractfile(member).read()):
+            raise ValueError("Private content needs review in " + member.name)
+        targets.append(target)
+    if hasattr(tarfile, "data_filter"):
+        archive.extractall(destination, filter="data")
+    else:
+        # Only regular files at verified contained paths reach the compatibility
+        # writer. Never restore archive permissions, ownership, links or devices.
+        for member, target in zip(members, targets):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.extractfile(member).read())
+    return members
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     current = json.loads((root / "dist/source/current.json").read_text())
@@ -33,15 +67,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="sayboard-source-check-") as temporary:
         destination = Path(temporary)
         with tarfile.open(folder / "frontend-source.tar.gz") as archive:
-            members = archive.getmembers()
-            for member in members:
-                path = PurePosixPath(member.name)
-                relative = PurePosixPath(*path.parts[1:]).as_posix()
-                if path.is_absolute() or ".." in path.parts or not member.isfile() or forbidden_path(relative):
-                    raise ValueError("Unexpected frontend archive entry: " + member.name)
-                if relative.startswith("backend/") or scan_bytes(archive.extractfile(member).read()):
-                    raise ValueError("Private content needs review in " + member.name)
-            archive.extractall(destination, filter="data")
+            members = extract_frontend(archive, destination)
         packages = list(destination.glob("*/package.json"))
         if len(packages) != 1:
             raise ValueError("Expected one standalone frontend package")

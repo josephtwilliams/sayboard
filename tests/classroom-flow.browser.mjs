@@ -1,3 +1,4 @@
+import { checkDirectBoard } from "./direct-board.browser.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { checkTeacherExampleSave } from "./teacher-example-save.browser.mjs";
@@ -341,6 +342,14 @@ export async function checkClassroomFlow({
       ),
       null,
     );
+    await checkDirectBoard({
+      page,
+      context: teacher,
+      origin,
+      profileId: ids[1],
+      engine,
+      artifactDirectory,
+    });
     // These destinations must remain real browser-history entries.
     const workspaceLinks = await page
       .getByRole("navigation", { name: "Learner workspace", exact: true })
@@ -378,9 +387,13 @@ export async function checkClassroomFlow({
       .getByRole("heading", { name: "Connected devices", exact: true })
       .waitFor();
     await page.goBack();
-    await page.getByRole("link", { name: "Edit board", exact: true }).waitFor();
+    await page
+      .getByRole("link", { name: "Board settings", exact: true })
+      .waitFor();
     const changeDraft = async (previous, next) => {
-      await page.getByRole("link", { name: "Board", exact: true }).click();
+      await page
+        .getByRole("link", { name: "Board settings", exact: true })
+        .click();
       await page
         .getByRole("heading", { name: "Demo learner", exact: true })
         .waitFor();

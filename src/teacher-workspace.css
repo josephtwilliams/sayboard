@@ -316,3 +316,15 @@
     min-width: 120px;
   }
 }
+
+@media (max-width: 760px) {
+  .workspace-header {
+    gap: 10px;
+  }
+  .workspace-global {
+    gap: 6px;
+  }
+  .workspace-global .button:not(.icon-button) {
+    padding: 10px 12px;
+  }
+}

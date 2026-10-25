@@ -24,7 +24,7 @@ import {
 } from "./classroom-contract";
 import { createSymbolPicker } from "./symbol-picker";
 import { placeTile, isTileSize } from "./layout";
-import { loadTheme, applyTheme } from "./theme";
+import { createThemeToggle } from "./theme-toggle";
 import { createLocalSpeech } from "./speech/local-speech";
 import { createCategoryNavigation } from "./category-navigation";
 import {
@@ -110,8 +110,6 @@ try {
   storageBlocked = true;
 }
 let activeBoardId: string | null = null;
-let theme = loadTheme();
-document.documentElement.dataset.theme = theme;
 let draft: Board | null = null;
 let caregiverUnlocked = false;
 const expandedSettings = new Set<string>();
@@ -554,31 +552,7 @@ function render() {
   brand.append(renderSymbol("message-circle"), el("span", "", "sayboard"));
   const controls = el("div", "header-controls");
   controls.dataset.fullscreenChrome = "";
-  const themeFeedback = el("span", "sr-only");
-  themeFeedback.role = "status";
-  themeFeedback.setAttribute("aria-live", "polite");
-  const themeButton = button(
-    "",
-    () => {
-      theme = theme === "light" ? "dark" : "light";
-      const saved = applyTheme(theme);
-      updateThemeButton();
-      themeFeedback.textContent = saved
-        ? `${theme === "dark" ? "Dark" : "Light"} mode on.`
-        : `${theme === "dark" ? "Dark" : "Light"} mode on for this session. Device storage is unavailable.`;
-    },
-    "button quiet icon-button",
-  );
-  function updateThemeButton() {
-    const label =
-      theme === "light" ? "Switch to dark mode" : "Switch to light mode";
-    themeButton.setAttribute("aria-label", label);
-    themeButton.title = label;
-    themeButton.replaceChildren(
-      renderSymbol(theme === "light" ? "moon" : "sun"),
-    );
-  }
-  updateThemeButton();
+  const themeButton = createThemeToggle();
   const caregiver = button(
     teacherEditing ? "Done editing" : draft ? "Back to board" : "",
     async () => {
@@ -619,7 +593,7 @@ function render() {
     caregiver.title = "Caregiver controls";
   }
   caregiver.disabled = arrangement !== null;
-  controls.append(themeButton, caregiver, themeFeedback);
+  controls.append(themeButton, caregiver);
   if (!draft && !teacherEditing) {
     const destination =
       board.tiles.find(

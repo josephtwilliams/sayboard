@@ -1,3 +1,6 @@
+import { createDirectBoardEditor } from "./direct-board-editor";
+import { createThemeToggle } from "./theme-toggle";
+import { hasBoardChanges } from "./editor-state";
 import { createTeacherWorkspace } from "./teacher-workspace";
 import {
   parseTeacherLocation,
@@ -33,6 +36,10 @@ let busy = false;
 let rooms: Classroom[] = [];
 let room: ClassroomDetail | null = null;
 let profile: ProfileDetail | null = null;
+const localDrafts = new Map<string, { board: Board; revision: number }>();
+window.addEventListener("beforeunload", (event) => {
+  if (localDrafts.size) event.preventDefault();
+});
 let notice = "Checking the classroom service…";
 let errorNotice = false;
 let pairing: { code: string; expiresAt: number } | null = null;
@@ -399,6 +406,7 @@ function clearPrivateView() {
   requestedLocation = "";
   routeRequest++;
   fieldValues.clear();
+  localDrafts.clear();
   history.replaceState(null, "", location.pathname);
 }
 function rememberLocation(replace = false) {
@@ -520,7 +528,7 @@ function render() {
   brand.append(renderSymbol("message-circle"), el("span", "", "sayboard"));
   const navigation = el("nav", "teacher-actions");
   navigation.setAttribute("aria-label", "Teacher navigation");
-  navigation.append(link("Open communication board", "/"));
+  navigation.append(link("Open communication board", "/"), createThemeToggle());
   if (signedIn)
     navigation.append(
       el(
@@ -529,6 +537,13 @@ function render() {
         accountClient.currentSession()?.account.username ?? "",
       ),
       action("Sign out", async () => {
+        if (
+          localDrafts.size &&
+          !(await confirm(
+            "Sign out and discard unsaved board changes in this tab?",
+          ))
+        )
+          return;
         await accountClient.logout();
         consumedExample();
         clearPrivateView();
@@ -748,6 +763,7 @@ function render() {
         )
           return;
         await teacherClient.removeClassroom(current.id);
+        for (const learner of current.profiles) localDrafts.delete(learner.id);
         rooms = await teacherClient.list();
         room = null;
         rememberLocation();
@@ -758,6 +774,7 @@ function render() {
   } else {
     const current = profile;
     const classroom = room;
+    const workingBoard = localDrafts.get(current.id)?.board ?? current.board;
     shell.append(
       el("h1", "", current.label),
       el(
@@ -769,35 +786,52 @@ function render() {
     );
     const grid = el("div", "teacher-profile-grid");
     const draft = el("section", "teacher-card teacher-draft");
-    const homeTiles = current.board.tiles.filter(Boolean).length;
+    const homeTiles = workingBoard.tiles.filter(Boolean).length;
     draft.append(
       el("h2", "", "Draft board"),
       el(
         "p",
         "",
-        `${homeTiles} home ${homeTiles === 1 ? "tile" : "tiles"}, ${current.board.subBoards.length} ${current.board.subBoards.length === 1 ? "category" : "categories"}. Draft revision ${current.revision}`,
+        `${homeTiles} home ${homeTiles === 1 ? "tile" : "tiles"}, ${workingBoard.subBoards.length} ${workingBoard.subBoards.length === 1 ? "category" : "categories"}. Draft revision ${current.revision}`,
       ),
     );
     const actions = el("div", "teacher-actions");
     const editor = `/?teacherBoard=${current.id}&classroom=${classroom.id}`;
     actions.append(
-      link("Edit board", editor),
+      link("Board settings", editor),
       link("Preview board", editor + "&preview=1"),
     );
-    const boardPreview = el("div", "teacher-board-preview");
-    boardPreview.setAttribute("aria-label", "Saved draft vocabulary preview");
-    for (const tile of current.board.tiles.slice(0, 10)) {
-      const previewTile = el(
-        "div",
-        tile
-          ? `teacher-preview-tile ${tile.tone}`
-          : "teacher-preview-tile empty",
-      );
-      if (tile)
-        previewTile.append(renderSymbol(tile.icon), el("span", "", tile.label));
-      else previewTile.setAttribute("aria-label", "Empty slot");
-      boardPreview.append(previewTile);
-    }
+    const boardPreview = createDirectBoardEditor({
+      board: workingBoard,
+      confirm,
+      onChange: (next) => {
+        if (hasBoardChanges(current.board, next))
+          localDrafts.set(current.id, {
+            board: next,
+            revision: localDrafts.get(current.id)?.revision ?? current.revision,
+          });
+        else localDrafts.delete(current.id);
+        notice = localDrafts.has(current.id)
+          ? "Unsaved board changes. Save draft before publishing."
+          : "No unsaved board changes.";
+        errorNotice = false;
+        status.textContent = notice;
+        status.classList.remove("error");
+        const summary = draft.querySelector(":scope > p");
+        if (summary) {
+          const count = next.tiles.filter(Boolean).length;
+          summary.textContent = `${count} home ${count === 1 ? "tile" : "tiles"}, ${next.subBoards.length} ${next.subBoards.length === 1 ? "category" : "categories"}. Draft revision ${current.revision}`;
+        }
+        const save = root?.querySelector<HTMLButtonElement>(
+          ".workspace-inline-save",
+        );
+        const publish = root?.querySelector<HTMLButtonElement>(
+          ".workspace-inline-publish",
+        );
+        if (save) save.disabled = !localDrafts.has(current.id);
+        if (publish) publish.disabled = localDrafts.has(current.id);
+      },
+    });
     draft.append(boardPreview, actions);
     const duplicate = el("details", "teacher-secondary-tools");
     duplicate.append(
@@ -810,7 +844,7 @@ function render() {
           profile = await teacherClient.addProfile(
             classroom.id,
             label,
-            current.board,
+            localDrafts.get(current.id)?.board ?? current.board,
           );
           room = await teacherClient.classroom(classroom.id);
           pairing = null;
@@ -823,9 +857,20 @@ function render() {
     const tools = el("details", "teacher-secondary-tools");
     tools.append(
       el("summary", "", "More board options"),
-      button("Export draft", () => exportProfile(current)),
+      button("Export draft", () =>
+        exportProfile({
+          ...current,
+          board: localDrafts.get(current.id)?.board ?? current.board,
+        }),
+      ),
       action("Refresh saved draft", async () => {
+        if (
+          localDrafts.has(current.id) &&
+          !(await confirm("Replace your unsaved changes with the saved draft?"))
+        )
+          return;
         await refreshProfile();
+        localDrafts.delete(current.id);
         notice = "Saved draft refreshed.";
       }),
       duplicate,
@@ -849,6 +894,10 @@ function render() {
       action(
         "Publish",
         async () => {
+          if (localDrafts.has(current.id)) {
+            notice = "Save your board changes before publishing.";
+            return;
+          }
           if (
             !(await confirm(
               `Publish the saved draft for ${current.label}? Linked devices will update automatically after speech, typing and caregiver editing finish.`,
@@ -962,7 +1011,7 @@ function render() {
         action("Restore version " + version.number + " to draft", async () => {
           if (
             !(await confirm(
-              `Replace the saved draft with version ${version.number}? The currently published version stays unchanged until you publish this draft.`,
+              `Replace ${localDrafts.has(current.id) ? "your unsaved changes and the saved draft" : "the saved draft"} with version ${version.number}? The currently published version stays unchanged until you publish this draft.`,
             ))
           )
             return;
@@ -971,6 +1020,7 @@ function render() {
             current.revision,
             version.number,
           );
+          localDrafts.delete(current.id);
           notice = `Version ${version.number} restored into the draft. Preview it before publishing.`;
         }),
       );
@@ -988,6 +1038,7 @@ function render() {
         )
           return;
         await teacherClient.removeProfile(current.id);
+        localDrafts.delete(current.id);
         await loadRoom(classroom);
         notice = "Profile deleted.";
       }),
@@ -1014,12 +1065,35 @@ function render() {
         shell.querySelectorAll<HTMLAnchorElement>(
           ".teacher-draft .teacher-actions a",
         ),
-      ).find((node) => node.textContent === "Edit board");
+      ).find((node) => node.textContent === "Board settings");
       const publish = shell.querySelector<HTMLButtonElement>(
         ".teacher-publication button",
       );
-      const save = button("Save draft", () => {});
-      save.disabled = true;
+      const save = button(
+        "Save draft",
+        () =>
+          void perform(async () => {
+            const pending = localDrafts.get(profile?.id ?? "");
+            if (!pending || !profile) return;
+            const saved = await teacherClient.save(
+              profile.id,
+              pending.revision,
+              structuredClone(pending.board),
+            );
+            localDrafts.delete(saved.id);
+            profile = saved;
+            notice = "Classroom draft saved. Publish when you are ready.";
+          }),
+        "button workspace-inline-save",
+      );
+      save.disabled = !localDrafts.has(profile.id);
+      if (publish) {
+        publish.classList.add("workspace-inline-publish");
+        publish.disabled = localDrafts.has(profile.id);
+      }
+      if (localDrafts.has(profile.id) && !errorNotice)
+        status.textContent =
+          "Unsaved board changes. Save draft before publishing.";
       if (preview) actions.push(preview);
       actions.push(save);
       if (publish) actions.push(publish);

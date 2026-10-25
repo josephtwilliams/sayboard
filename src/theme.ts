@@ -1,5 +1,5 @@
 export type Theme = "light" | "dark";
-const themeKey = "sayboard-theme";
+export const themeKey = "sayboard-theme";
 /** Theme belongs to this device, not exported vocabulary. */
 export function loadTheme(): Theme {
   try {

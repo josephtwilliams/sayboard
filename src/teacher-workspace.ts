@@ -1,11 +1,8 @@
 import { createElement as el } from "./dom";
 import { renderSymbol } from "./symbols";
+import { createThemeToggle } from "./theme-toggle";
 import type { ClassroomDetail, ProfileSummary } from "./classroom-contract";
-import {
-  teacherHref,
-  teacherEditorHref,
-  type WorkspaceSection,
-} from "./teacher-navigation";
+import { teacherHref, type WorkspaceSection } from "./teacher-navigation";
 import "./teacher-workspace.css";
 
 function link(label: string, href: string, className = "") {
@@ -47,7 +44,7 @@ export function createTeacherWorkspace({
     el("span", "workspace-wide-label", "Open communication board"),
     el("span", "workspace-short-label", "Open board"),
   );
-  destinations.append(openBoard);
+  destinations.append(openBoard, createThemeToggle());
   const oldHeader = content.querySelector(".teacher-header");
   const signOut = Array.from(oldHeader?.querySelectorAll("button") ?? []).find(
     (node) => node.textContent === "Sign out",
@@ -161,14 +158,12 @@ export function createTeacherWorkspace({
     ] satisfies [WorkspaceSection, string][]) {
       const destination = link(
         label,
-        key === "board"
-          ? teacherEditorHref(room.id, profile.id)
-          : teacherHref({
-              kind: "learner",
-              classroomId: room.id,
-              profileId: profile.id,
-              section: key,
-            }),
+        teacherHref({
+          kind: "learner",
+          classroomId: room.id,
+          profileId: profile.id,
+          section: key,
+        }),
       );
       if (section === key) destination.setAttribute("aria-current", "page");
       tabs.append(destination);

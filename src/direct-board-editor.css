@@ -1,0 +1,150 @@
+.direct-navigation,
+.direct-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 14px;
+}
+.direct-feedback {
+  min-height: 48px;
+  font-size: 15px;
+  color: var(--teacher-muted, #536b60);
+}
+.direct-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.direct-cell {
+  position: relative;
+  min-width: 0;
+  border: 2px solid var(--tile-border);
+  border-bottom-width: 4px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.direct-cell .direct-edit {
+  border: 0;
+  border-radius: 12px;
+  width: 100%;
+  min-height: 144px;
+  padding: 32px 10px 16px;
+  background: transparent;
+  font-size: 19px;
+  gap: 10px;
+}
+.direct-move {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  touch-action: none;
+  cursor: grab;
+}
+.direct-move svg {
+  width: 20px;
+  height: 20px;
+}
+.direct-dragging,
+.direct-dragging button {
+  cursor: grabbing;
+}
+.direct-drop-active {
+  outline: 4px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.direct-empty {
+  border: 2px dashed var(--tile-border);
+  background: transparent;
+}
+.direct-add {
+  width: 100%;
+  height: 100%;
+  min-height: 144px;
+  border: 0;
+  background: transparent;
+  color: var(--teacher-muted, #536b60);
+  padding: 18px 10px;
+  font: inherit;
+}
+.direct-category-edit {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-top: 1px solid var(--tile-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.direct-dialog {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.direct-dialog form {
+  display: grid;
+  gap: 16px;
+}
+.direct-dialog label {
+  display: grid;
+  gap: 6px;
+}
+.direct-dialog input,
+.direct-dialog select {
+  min-width: 0;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px;
+  font: inherit;
+}
+.direct-dialog [hidden] {
+  display: none !important;
+}
+.direct-dialog .dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+@media (max-width: 760px) {
+  .direct-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .direct-cell .direct-edit {
+    font-size: 16px;
+    min-height: 136px;
+    padding: 40px 6px 12px;
+  }
+  .direct-edit svg {
+    width: 32px;
+    height: 32px;
+  }
+  .direct-add {
+    font-size: 14px;
+    min-height: 136px;
+  }
+}
+@media (max-width: 380px) {
+  .direct-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.direct-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.direct-add svg {
+  width: 24px;
+  height: 24px;
+}

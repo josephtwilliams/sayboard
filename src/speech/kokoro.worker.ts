@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { PHONEMIZER_WASM_URL } from './phonemizer';
+import { loadRuntimeModule } from './kokoro-runtime';
 import { KokoroTTS } from 'kokoro-js';
 import { env } from '@huggingface/transformers';
 import wasmUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm?url';
@@ -19,6 +20,7 @@ let downloading = true;
 let downloadedBytes = 0;
 let lastProgress = 0;
 const seen = new Set<string>();
+let downloadFailed = false;
 
 env.allowLocalModels = false;
 env.useBrowserCache = false;
@@ -30,18 +32,30 @@ wasm.proxy = false;
 wasm.wasmPaths = { wasm: wasmUrl, mjs: mjsUrl };
 env.remotePathTemplate = `{model}/resolve/${MODEL_REVISION}/`;
 
-globalThis.fetch = async (input, init) => {
+const assetFetch: typeof fetch = async (input, init) => {
   const requested = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const url = pinnedAsset(requested);
   if (!url) {
-    if (new URL(requested, location.href).href === new URL(PHONEMIZER_WASM_URL, location.href).href || new URL(requested, location.href).href === new URL(wasmUrl, location.href).href || new URL(requested, location.href).href === new URL(mjsUrl, location.href).href) return networkFetch(input, init);
+    const href = new URL(requested, location.href).href;
+    const isWasm = [PHONEMIZER_WASM_URL, wasmUrl].some(asset => href === new URL(asset, location.href).href);
+    if (isWasm || href === new URL(mjsUrl, location.href).href) {
+      const response = await networkFetch(input, init);
+      if (!response.ok || /^text\/html/i.test(response.headers.get('content-type') ?? '')) throw new Error('Speech runtime download failed');
+      // Consume here, not in Emscripten: body failures must be recorded as download
+      // failures before load() decides whether the separately cached model is corrupt.
+      const bytes = await response.arrayBuffer();
+      const prefix = new TextDecoder().decode(bytes.slice(0, 256)).trimStart();
+      if (/^<(?:!doctype\s+html|html|head|body)\b/i.test(prefix) || (isWasm && !WebAssembly.validate(bytes))) throw new Error('Invalid speech runtime download');
+      return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+    }
     throw new Error('Unexpected speech asset request blocked');
   }
   const stored = await cache?.match(url);
   if (stored) return stored;
   if (!downloading) throw new Error('Speech assets unavailable offline');
   const response = await networkFetch(url, { ...init, credentials: 'omit', referrerPolicy: 'no-referrer' });
-  if (!response.ok || !response.body) throw new Error('Speech asset download failed');
+  // A web filter or captive portal page is never a model file, so it is not cached.
+  if (!response.ok || !response.body || /^text\/html/i.test(response.headers.get('content-type') ?? '')) throw new Error('Speech asset download failed');
   const chunks: Uint8Array[] = [];
   const reader = response.body.getReader();
   let length = 0;
@@ -65,6 +79,11 @@ globalThis.fetch = async (input, init) => {
   seen.add(url);
   return complete;
 };
+// Notes failed downloads. Only complete files are cached, so a dropped connection must not clear them.
+globalThis.fetch = (input, init) => assetFetch(input, init).then(response => {
+  if (!response.ok) downloadFailed = true;
+  return response;
+}, error => { downloadFailed = true; throw error; });
 
 async function load() {
   try {
@@ -77,10 +96,20 @@ async function load() {
       for (const request of await cache.keys()) if (pinnedAsset(request.url) !== request.url) await cache.delete(request);
     }
   } catch { cache = null; }
-  // Download the voice too before announcing ready. Generate will make no network requests.
-  await fetch(`https://huggingface.co/${MODEL_ID}/resolve/${MODEL_REVISION}/voices/af_heart.bin`);
-  model = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm' });
-  await model.generate('Yes', { voice: 'af_heart', speed: 1 });
+  try {
+    // ONNX imports its .mjs natively, bypassing globalThis.fetch. A bad local
+    // module must not be mistaken for a corrupt cached model either.
+    try { await loadRuntimeModule(mjsUrl); }
+    catch (error) { downloadFailed = true; throw error; }
+    // Download the voice too before announcing ready. Generate will make no network requests.
+    await fetch(`https://huggingface.co/${MODEL_ID}/resolve/${MODEL_REVISION}/voices/af_heart.bin`);
+    model = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm' });
+    await model.generate('Yes', { voice: 'af_heart', speed: 1 });
+  } catch (error) {
+    // A cached error page or truncated file would fail every later load, so the next load downloads afresh.
+    if (!downloadFailed && storage) await Promise.all([storage.delete(MODEL_CACHE), storage.delete(VOICE_CACHE)]).catch(() => {});
+    throw error;
+  }
   downloading = false;
   send({ kind: 'ready', bytes: downloadedBytes, assets: MODEL_FILES.length, fetched: seen.size });
 }

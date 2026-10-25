@@ -170,6 +170,14 @@ export class SqliteStore implements Store {
             .get(payload, accountId, revision);
     return parseSaved(result);
   }
+  async loginAvailable(key: string, now: number): Promise<boolean> {
+    const row = this.db
+      .prepare(
+        "SELECT count FROM login_limits WHERE key = ? AND expires_at > ?",
+      )
+      .get(key, now);
+    return !row || (typeof row.count === "number" && row.count < 10);
+  }
   async allowLogin(key: string, now: number): Promise<boolean> {
     this.db.prepare("DELETE FROM login_limits WHERE expires_at <= ?").run(now);
     // Global peer budget, persisted across process restarts; bounds scrypt work.

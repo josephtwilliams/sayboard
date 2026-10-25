@@ -94,6 +94,17 @@ export class PostgresStore implements Store {
           );
     return saved(result.rows[0]);
   }
+  async loginAvailable(key: string, now: number): Promise<boolean> {
+    const row = record(
+      (
+        await this.query(
+          "SELECT count FROM sayboard.login_limits WHERE key = $1 AND expires_at > $2",
+          [key, now],
+        )
+      ).rows[0],
+    );
+    return !row || safeInteger(row.count) < 10;
+  }
   async allowLogin(key: string, now: number): Promise<boolean> {
     // One atomic upsert serializes competing instances. Expired windows reset
     // under the same row lock; saturated counts never overflow an integer.

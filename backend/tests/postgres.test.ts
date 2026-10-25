@@ -193,6 +193,15 @@ describe("PostgreSQL schema and store using in-process PostgreSQL", () => {
     expect(saves.filter(Boolean)).toHaveLength(1);
     expect((await store.board(owner))?.revision).toBe(2);
   });
+  it("preflights the login budget without charging and respects expiry", async () => {
+    for (let i = 0; i < 20; i++)
+      expect(await store.loginAvailable("hashed-peer", 1000)).toBe(true);
+    for (let i = 0; i < 10; i++)
+      expect(await store.allowLogin("hashed-peer", 1000)).toBe(true);
+    expect(await store.loginAvailable("hashed-peer", 300_999)).toBe(false);
+    expect(await store.loginAvailable("hashed-peer", 301_000)).toBe(true);
+    expect(await store.allowLogin("hashed-peer", 301_000)).toBe(true);
+  });
   it("shares atomic rate limits across adapters and resets expiry", async () => {
     const second = new PostgresStore((sql, params) => db.query(sql, params));
     const checks = await Promise.all(

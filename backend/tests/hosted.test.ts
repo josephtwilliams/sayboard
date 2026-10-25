@@ -357,6 +357,7 @@ describe("hosted HTTPS boundary", () => {
         deleteSession: vi.fn(),
         board: vi.fn(),
         saveBoard: vi.fn(),
+        loginAvailable: async () => true,
         allowLogin: async () => true,
       };
       const api = createHostedHandler(
@@ -397,6 +398,7 @@ describe("hosted HTTPS boundary", () => {
       board: vi.fn(),
       saveBoard: vi.fn(),
       account: async () => short,
+      loginAvailable: async () => true,
       allowLogin: async () => true,
     }));
     expect(

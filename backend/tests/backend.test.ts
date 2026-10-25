@@ -301,6 +301,162 @@ describe("passwords and authentication", () => {
       401, 429, 429,
     ]);
   });
+  it("does not spend the peer budget on logins turned away for concurrency", async () => {
+    const db = store();
+    const hostedOrigin = "https://pilot.example.test";
+    const api = await createApi(
+      db,
+      { kind: "hosted", origin: hostedOrigin, passwordConcurrency: 1 },
+      () => 1_000_000,
+    );
+    const login = () =>
+      api(
+        new Request(`${hostedOrigin}/api/auth/login`, {
+          method: "POST",
+          headers: {
+            origin: hostedOrigin,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            username: "missing",
+            password: "synthetic-password-only",
+          }),
+        }),
+        peer,
+      );
+    const first = login();
+    // The first request is now hashing; later ones arrive while it runs.
+    await new Promise((resolve) => setImmediate(resolve));
+    const replies = await Promise.all([first, login(), login()]);
+    expect(replies.map((reply) => reply.status).sort()).toEqual([
+      401, 429, 429,
+    ]);
+    // Only the one request that ran scrypt used an attempt.
+    for (let i = 0; i < 9; i++)
+      expect(await db.allowLogin(peer, 1_000_000)).toBe(true);
+    expect(await db.allowLogin(peer, 1_000_000)).toBe(false);
+  });
+  it("preflights the SQLite budget without charging and respects expiry", async () => {
+    const db = store();
+    for (let i = 0; i < 20; i++)
+      expect(await db.loginAvailable(peer, 1000)).toBe(true);
+    for (let i = 0; i < 10; i++)
+      expect(await db.allowLogin(peer, 1000)).toBe(true);
+    expect(await db.loginAvailable(peer, 300_999)).toBe(false);
+    expect(await db.loginAvailable(peer, 301_000)).toBe(true);
+    expect(await db.allowLogin(peer, 301_000)).toBe(true);
+  });
+  it("does not charge capacity-rejected requests in a concurrent cold burst", async () => {
+    const db = store();
+    const hostedOrigin = "https://pilot.example.test";
+    const api = await createApi(
+      db,
+      { kind: "hosted", origin: hostedOrigin, passwordConcurrency: 1 },
+      () => 1_000_000,
+    );
+    const requests = Array.from({ length: 5 }, () =>
+      api(
+        new Request(`${hostedOrigin}/api/auth/login`, {
+          method: "POST",
+          headers: { origin: hostedOrigin, "content-type": "application/json" },
+          body: JSON.stringify({
+            username: "missing",
+            password: "synthetic-password-only",
+          }),
+        }),
+        peer,
+      ),
+    );
+    const replies = await Promise.all(requests);
+    expect(replies.map((reply) => reply.status).sort()).toEqual([
+      401, 429, 429, 429, 429,
+    ]);
+    for (let i = 0; i < 9; i++)
+      expect(await db.allowLogin(peer, 1_000_000)).toBe(true);
+    expect(await db.allowLogin(peer, 1_000_000)).toBe(false);
+  });
+  it("rechecks the atomic budget and releases the slot after a stale preflight", async () => {
+    const db = store();
+    const hostedOrigin = "https://pilot.example.test";
+    const api = await createApi(
+      db,
+      { kind: "hosted", origin: hostedOrigin, passwordConcurrency: 1 },
+      () => 1_000_000,
+    );
+    const originalAvailable = db.loginAvailable.bind(db);
+    let raced = false;
+    db.loginAvailable = async (key, time) => {
+      const available = await originalAvailable(key, time);
+      if (!raced) {
+        raced = true;
+        for (let i = 0; i < 10; i++) await db.allowLogin(key, time);
+      }
+      return available;
+    };
+    const login = (from: string) =>
+      api(
+        new Request(`${hostedOrigin}/api/auth/login`, {
+          method: "POST",
+          headers: { origin: hostedOrigin, "content-type": "application/json" },
+          body: JSON.stringify({
+            username: "missing",
+            password: "synthetic-password-only",
+          }),
+        }),
+        from,
+      );
+    expect((await login(peer)).status).toBe(429);
+    expect((await login("127.0.0.2")).status).toBe(401);
+  });
+  it("keeps a rate-limited peer from holding the password slot", async () => {
+    let arrived = () => {};
+    const waiting = new Promise<void>((resolve) => (arrived = resolve));
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const attacker = "192.0.2.10";
+    // A database store answers the budget check after a round trip.
+    class RemoteStore extends SqliteStore {
+      override async loginAvailable(key: string, time: number) {
+        if (key === attacker) {
+          arrived();
+          await gate;
+        }
+        return super.loginAvailable(key, time);
+      }
+    }
+    const db = new RemoteStore(":memory:");
+    handles.push(db);
+    for (let i = 0; i < 10; i++)
+      await SqliteStore.prototype.allowLogin.call(db, attacker, 1_000_000);
+    const hostedOrigin = "https://pilot.example.test";
+    const api = await createApi(
+      db,
+      { kind: "hosted", origin: hostedOrigin, passwordConcurrency: 1 },
+      () => 1_000_000,
+    );
+    const login = (from: string) =>
+      api(
+        new Request(`${hostedOrigin}/api/auth/login`, {
+          method: "POST",
+          headers: {
+            origin: hostedOrigin,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            username: "missing",
+            password: "synthetic-password-only",
+          }),
+        }),
+        from,
+      );
+    const flood = Array.from({ length: 5 }, () => login(attacker));
+    await waiting;
+    expect((await login(peer)).status).toBe(401);
+    release();
+    expect((await Promise.all(flood)).map((reply) => reply.status)).toEqual([
+      429, 429, 429, 429, 429,
+    ]);
+  });
   it("rate limits password work with a persisted budget", async () => {
     const { db, api, advance } = await setup();
     for (let i = 0; i < 9; i++)

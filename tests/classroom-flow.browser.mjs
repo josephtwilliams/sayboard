@@ -584,7 +584,7 @@ export async function checkClassroomFlow({
     await publish();
     expectedVersion = 2;
     await page
-      .getByRole("heading", { name: "Version 2", exact: true })
+      .getByRole("heading", { name: "Published version 2", exact: true })
       .waitFor();
     await applied("Published two", untouchedAt);
     await page

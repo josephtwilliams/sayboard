@@ -37,7 +37,7 @@ export function createLocalSpeech() {
     const choice = document.createElement("select");
     choice.append(
       new Option("Device voice", "system"),
-      new Option("Consistent local voice · Heart, US English", "model"),
+      new Option("Consistent local voice (Heart, US English)", "model"),
     );
     choice.value = engine.getMode();
     label.append(choice);

@@ -73,7 +73,6 @@ button {
   gap: 10px;
   font-size: 25px;
   font-weight: 750;
-  letter-spacing: -1px;
 }
 .brand svg {
   background: #204e42;
@@ -105,16 +104,9 @@ button {
 .primary:hover {
   background: #143c30;
 }
-.eyebrow {
-  font-size: 12px;
-  font-weight: 750;
-  letter-spacing: 2px;
-  color: #557263;
-}
 h1 {
   font-size: clamp(26px, 3.4vw, 40px);
   font-weight: 650;
-  letter-spacing: -1.4px;
   line-height: 1.2;
   margin: 10px 0 12px;
 }
@@ -493,7 +485,6 @@ output {
 [data-theme="dark"] .primary:hover {
   background: #d5edca;
 }
-[data-theme="dark"] .eyebrow,
 [data-theme="dark"] .intro p,
 [data-theme="dark"] .subtitle,
 [data-theme="dark"] footer,

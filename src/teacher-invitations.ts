@@ -61,7 +61,6 @@ function field(labelText: string, type = "text") {
 export function createInvitationsPanel() {
   const section = el("section", "teacher-card teacher-invitations");
   section.append(
-    el("p", "teacher-eyebrow", "PILOT ORGANISER"),
     el("h2", "", "Invite a teacher"),
     el(
       "p",
@@ -236,11 +235,7 @@ export async function showActivation(
   const card = el("section", "teacher-card teacher-login");
   const status = el("p", "teacher-status", "Checking your private link…");
   status.role = "status";
-  main.append(
-    el("p", "teacher-eyebrow", "SAYBOARD TEACHER PILOT"),
-    card,
-    status,
-  );
+  main.append(card, status);
   root.replaceChildren(main);
   try {
     const invitation = record(

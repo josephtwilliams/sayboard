@@ -13,7 +13,6 @@ const root = document.querySelector("#move-board");
 if (!root) throw new Error("Missing board recovery page");
 const main = el("main", "teacher-shell");
 main.append(
-  el("p", "teacher-eyebrow", "SAYBOARD HAS MOVED"),
   el("h1", "", "Take your board to sayboard.org"),
   el(
     "p",

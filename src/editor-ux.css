@@ -204,7 +204,6 @@ summary:focus-visible {
 }
 .editor-workspace .editor-context h1 {
   font-size: clamp(26px, 3vw, 36px);
-  letter-spacing: -1px;
 }
 .editor-workspace .editor-location {
   color: var(--editor-muted);
@@ -244,9 +243,6 @@ summary:focus-visible {
   top: 210px;
   display: grid;
   gap: 8px;
-}
-.editor-section-nav > .eyebrow {
-  margin: 0 12px 10px;
 }
 .editor-section-link {
   display: flex;
@@ -300,7 +296,6 @@ summary:focus-visible {
 .editor-words-section > h2 {
   margin: 0 0 6px;
   font-size: 25px;
-  letter-spacing: -0.6px;
 }
 .editor-section-description {
   color: var(--editor-muted);
@@ -377,9 +372,6 @@ summary:focus-visible {
     position: static;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
-  }
-  .editor-section-nav > .eyebrow {
-    display: none;
   }
   .editor-section-link {
     flex-direction: column;

@@ -190,9 +190,9 @@ function renderDevices(container: HTMLElement, current: ProfileDetail) {
       device.expiresAt <= Date.now()
         ? "Link expired. Pair this device again."
         : applied
-          ? `Version ${device.appliedVersion} saved${recent ? " · Up to date" : ""}`
+          ? `Version ${device.appliedVersion} saved${recent ? ". Up to date" : ""}`
           : current.publishedVersion
-            ? `Waiting for version ${current.publishedVersion}${device.appliedVersion ? ` · Version ${device.appliedVersion} saved` : ""}`
+            ? `Waiting for version ${current.publishedVersion}${device.appliedVersion ? `. Version ${device.appliedVersion} saved` : ""}`
             : "Waiting for the first publication";
     details.append(
       el("strong", "", device.name),
@@ -204,7 +204,7 @@ function renderDevices(container: HTMLElement, current: ProfileDetail) {
       el(
         "span",
         "teacher-muted",
-        `${lastContact(device.lastSeenAt)}${device.lastSeenAt !== null && !recent ? " · No recent contact" : ""}`,
+        `${lastContact(device.lastSeenAt)}${device.lastSeenAt !== null && !recent ? ". No recent contact" : ""}`,
       ),
     );
     row.append(
@@ -455,7 +455,6 @@ function render() {
   );
   status.role = "status";
   status.setAttribute("aria-live", "polite");
-  shell.append(el("p", "teacher-eyebrow", "TEACHER WORKSPACE"));
   if (!signedIn) {
     shell.append(
       el("h1", "", "A familiar board for every learner."),
@@ -518,7 +517,6 @@ function render() {
     );
     const welcome = el("section", "teacher-card teacher-welcome");
     welcome.append(
-      el("p", "teacher-eyebrow", "NEW TO SAYBOARD?"),
       el("h2", "", "Try a board before you sign up"),
       el(
         "p",
@@ -557,7 +555,6 @@ function render() {
     if (!rooms.length) {
       const create = el("section", "teacher-card teacher-first-board-card");
       create.append(
-        el("p", "teacher-eyebrow", "LET'S GET STARTED"),
         el("h2", "", "Your first classroom, step by step"),
         el(
           "p",
@@ -751,12 +748,11 @@ function render() {
     const draft = el("section", "teacher-card teacher-draft");
     const homeTiles = current.board.tiles.filter(Boolean).length;
     draft.append(
-      el("p", "teacher-eyebrow", "DRAFT"),
-      el("h2", "", "1. Try and edit the board"),
+      el("h2", "", "1. Try and edit the draft board"),
       el(
         "p",
         "",
-        `${homeTiles} home ${homeTiles === 1 ? "tile" : "tiles"} · ${current.board.subBoards.length} ${current.board.subBoards.length === 1 ? "category" : "categories"} · Draft revision ${current.revision}`,
+        `${homeTiles} home ${homeTiles === 1 ? "tile" : "tiles"}, ${current.board.subBoards.length} ${current.board.subBoards.length === 1 ? "category" : "categories"}. Draft revision ${current.revision}`,
       ),
     );
     const actions = el("div", "teacher-actions");
@@ -823,13 +819,12 @@ function render() {
         (connecting ? " teacher-publication-ready" : ""),
     );
     publish.append(
-      el("p", "teacher-eyebrow", "PUBLISHED"),
       el(
         "h2",
         "",
         current.publishedVersion
-          ? `Version ${current.publishedVersion}`
-          : "Ready when you are",
+          ? `Published version ${current.publishedVersion}`
+          : "Ready to publish",
       ),
       el(
         "p",
@@ -952,7 +947,7 @@ function render() {
         el(
           "span",
           "",
-          `Version ${version.number} · ${new Date(version.createdAt).toLocaleString()}`,
+          `Version ${version.number}, published ${new Date(version.createdAt).toLocaleString()}`,
         ),
         action("Restore version " + version.number + " to draft", async () => {
           if (

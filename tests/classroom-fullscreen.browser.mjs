@@ -69,7 +69,7 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const indicator = page.locator(".classroom-sync-status");
-  const linkedText = "Classroom version 1 · automatic updates";
+  const linkedText = "Classroom version 1. Automatic updates";
   const gridTop = () =>
     page.locator(".grid").evaluate((n) => n.getBoundingClientRect().top);
   const afterPolls = async (count) => {

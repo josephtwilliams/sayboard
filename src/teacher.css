@@ -18,7 +18,6 @@
 .teacher-shell h1 {
   font-size: clamp(30px, 4vw, 46px);
   line-height: 1.14;
-  letter-spacing: -1.2px;
   margin: 18px 0 14px;
   max-width: 800px;
 }
@@ -32,13 +31,6 @@
   font-size: 18px;
   max-width: 700px;
   margin-bottom: 24px;
-}
-.teacher-eyebrow {
-  font-size: 12px;
-  font-weight: 750;
-  letter-spacing: 1.8px;
-  color: #445e51;
-  margin: 0 0 12px;
 }
 .teacher-grid {
   display: grid;
@@ -236,9 +228,9 @@
   background: #e7f0df;
 }
 .teacher-pairing code {
+  font-family: inherit;
   font-size: 29px;
   font-weight: 750;
-  letter-spacing: 2px;
   overflow-wrap: anywhere;
 }
 .teacher-row {
@@ -329,7 +321,6 @@
 }
 .teacher-shell h2 {
   font-size: 24px;
-  letter-spacing: -0.65px;
 }
 .teacher-shell .button {
   min-height: 48px;
@@ -373,7 +364,7 @@
 .teacher-card p {
   line-height: 1.6;
 }
-.teacher-draft > p:not(.teacher-eyebrow) {
+.teacher-draft > p {
   font-size: 14px;
   color: #4e6357;
 }
@@ -428,13 +419,10 @@
   flex-direction: column;
   align-items: flex-start;
 }
-.teacher-publication > .teacher-eyebrow {
-  margin-bottom: 12px;
-}
 .teacher-publication > h2 {
   font-size: 32px;
 }
-.teacher-publication > p:not(.teacher-eyebrow) {
+.teacher-publication > p {
   margin: 0 0 24px;
 }
 .teacher-publication > .primary {

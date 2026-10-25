@@ -1028,7 +1028,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
   voices.forEach((v) =>
     select.append(
       new Option(
-        `${v.name} · ${v.lang}${v.localService ? " · on device" : " · may use network"}`,
+        `${v.name} (${v.lang}, ${v.localService ? "on device" : "may use network"})`,
         v.voiceURI,
       ),
     ),
@@ -1129,7 +1129,6 @@ function renderEditor(shell: HTMLElement, working: Board) {
   const workspace = el("div", "editor-workspace-layout");
   const navigation = el("nav", "editor-section-nav");
   navigation.setAttribute("aria-label", "Board editor sections");
-  navigation.append(el("p", "eyebrow", "MAKE IT YOURS"));
   const content = el("div", "editor-workspace-content");
   const words = el("section", "editor-words-section");
   words.id = "editor-words";
@@ -1425,7 +1424,7 @@ function editTile(
   for (let slot = 0; slot < 60; slot++) {
     const occupant = page.tiles[slot];
     const option = new Option(
-      `Slot ${slot + 1}${occupant ? ` · ${occupant.label}${occupant.id === editingId ? " (current)" : " (occupied)"}` : " · empty"}`,
+      `Slot ${slot + 1}: ${occupant ? `${occupant.label}${occupant.id === editingId ? " (current)" : " (occupied)"}` : "empty"}`,
       String(slot),
     );
     option.disabled = Boolean(occupant && occupant.id !== editingId);
@@ -1637,7 +1636,7 @@ if (supported) {
         voices.forEach((v) =>
           select.append(
             new Option(
-              `${v.name} · ${v.lang}${v.localService ? " · on device" : " · may use network"}`,
+              `${v.name} (${v.lang}, ${v.localService ? "on device" : "may use network"})`,
               v.voiceURI,
             ),
           ),
@@ -1760,12 +1759,12 @@ function syncDescription() {
   const state = classroomSyncState;
   if (state.kind !== "linked") return "";
   if (state.status === "offline")
-    return "Classroom offline · using saved board";
+    return "Classroom offline. Using saved board";
   if (state.status === "storage-error")
-    return "Update could not be saved · current board kept";
+    return "Update could not be saved. Current board kept";
   if (state.status === "waiting" && state.publishedVersion)
-    return `Classroom update ready · waiting for a pause`;
+    return `Classroom update ready. Waiting for a pause`;
   return state.version
-    ? `Classroom version ${state.version} · automatic updates`
-    : "Classroom connected · automatic updates";
+    ? `Classroom version ${state.version}. Automatic updates`
+    : "Classroom connected. Automatic updates";
 }

@@ -90,41 +90,55 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
     path: string,
     options: RequestInit = {},
   ): Promise<unknown> {
-    let response: Response;
+    // Safari versions without AbortSignal.timeout still support AbortController.
+    // Keep the fallback alive through response-body parsing, and always release it.
+    const controller =
+      typeof AbortSignal.timeout === "function" ? null : new AbortController();
+    const timer = controller
+      ? setTimeout(() => controller.abort(), 20_000)
+      : undefined;
     try {
-      response = await fetcher(path, {
-        ...options,
-        credentials: "same-origin",
-      });
-    } catch {
-      throw new AccountError(
-        0,
-        "Account storage could not be reached. Your board remains on this device.",
-      );
-    }
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) session = null;
-      const message =
-        response.status === 409
-          ? "The account board changed on another device. Review the latest board before choosing which version to keep."
-          : response.status === 503
-            ? "The account service is unavailable. Try again later. Your local board is unchanged."
-            : response.status === 401
-              ? "Sign-in failed or your session expired. Your local board is unchanged."
-              : response.status === 403
-                ? "This account request was rejected. Sign in again. Your local board is unchanged."
-                : "The account request failed. Your local board is unchanged.";
-      throw new AccountError(response.status, message);
-    }
-    try {
-      return await response.json();
-    } catch {
-      throw new AccountError(
-        502,
-        "The account response was invalid. Your local board is unchanged.",
-      );
+      const signal = controller?.signal ?? AbortSignal.timeout(20_000);
+      let response: Response;
+      try {
+        response = await fetcher(path, {
+          ...options,
+          credentials: "same-origin",
+          signal,
+        });
+      } catch {
+        throw new AccountError(
+          0,
+          "Account storage could not be reached. Your board remains on this device.",
+        );
+      }
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) session = null;
+        const message =
+          response.status === 409
+            ? "The account board changed on another device. Review the latest board before choosing which version to keep."
+            : response.status === 503
+              ? "The account service is unavailable. Try again later. Your local board is unchanged."
+              : response.status === 401
+                ? "Sign-in failed or your session expired. Your local board is unchanged."
+                : response.status === 403
+                  ? "This account request was rejected. Sign in again. Your local board is unchanged."
+                  : "The account request failed. Your local board is unchanged.";
+        throw new AccountError(response.status, message);
+      }
+      try {
+        return await response.json();
+      } catch {
+        throw new AccountError(
+          502,
+          "The account response was invalid. Your local board is unchanged.",
+        );
+      }
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
+
   function mutationHeaders() {
     if (!session)
       throw new AccountError(401, "Sign in before saving to your account.");

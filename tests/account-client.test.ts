@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AccountError, createAccountClient } from "../src/account";
 import { starterBoard, type Board } from "../src/board";
 
@@ -79,7 +79,11 @@ describe("same-origin account client contract", () => {
     expect(calls).toEqual([
       {
         path: "/api/auth/capabilities",
-        options: { cache: "no-store", credentials: "same-origin" },
+        options: {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: expect.any(AbortSignal),
+        },
       },
     ]);
   });
@@ -252,6 +256,160 @@ describe("same-origin account client contract", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("times out a stalled request and releases the operation lock", async () => {
+    vi.useFakeTimers();
+    // Node's AbortSignal.timeout ignores fake timers, so drive it from setTimeout.
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) => {
+        const controller = new AbortController();
+        setTimeout(
+          () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+          ms,
+        );
+        return controller.signal;
+      });
+    try {
+      const calls: (RequestInfo | URL)[] = [];
+      const client = createAccountClient(async (path, options) => {
+        calls.push(path);
+        if (calls.length > 1) return json(sessionResponse);
+        return new Promise<Response>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () =>
+            reject(options.signal?.reason),
+          );
+        });
+      });
+      let outcome: unknown = "pending";
+      void client.restoreSession().then(
+        () => (outcome = "resolved"),
+        (error: unknown) => (outcome = error),
+      );
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect(outcome).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(outcome).toMatchObject({
+        status: 0,
+        message: expect.stringContaining("could not be reached"),
+      });
+      await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
+      expect(calls).toHaveLength(2);
+    } finally {
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["restoreSession", "checkAvailability"] as const)(
+    "falls back to an AbortController timeout and releases the %s lock without AbortSignal.timeout",
+    async (operation) => {
+      vi.useFakeTimers();
+      const timeout = AbortSignal.timeout;
+      Object.defineProperty(AbortSignal, "timeout", { value: undefined });
+      try {
+        const result =
+          operation === "restoreSession"
+            ? sessionResponse
+            : { state: "enabled" };
+        let calls = 0;
+        const client = createAccountClient(async (_path, options) => {
+          calls++;
+          if (calls > 1) return json(result);
+          return new Promise<Response>((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          });
+        });
+        let outcome: unknown = "pending";
+        void client[operation]().then(
+          () => (outcome = "resolved"),
+          (error: unknown) => (outcome = error),
+        );
+        expect(calls).toBe(1);
+        await vi.advanceTimersByTimeAsync(19_999);
+        expect(outcome).toBe("pending");
+        await vi.advanceTimersByTimeAsync(1);
+        expect(outcome).toMatchObject({ status: 0 });
+        await expect(client[operation]()).resolves.toEqual(result);
+        expect(calls).toBe(2);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        Object.defineProperty(AbortSignal, "timeout", { value: timeout });
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([200, 401, 503])(
+    "cleans up the fallback timer after a completed HTTP %s response",
+    async (status) => {
+      vi.useFakeTimers();
+      const timeout = AbortSignal.timeout;
+      Object.defineProperty(AbortSignal, "timeout", { value: undefined });
+      try {
+        let signal: AbortSignal | null | undefined;
+        const client = createAccountClient(async (_path, options) => {
+          signal = options?.signal;
+          return json(
+            status === 200 ? sessionResponse : { error: "synthetic" },
+            status,
+          );
+        });
+        if (status === 503)
+          await expect(client.restoreSession()).rejects.toMatchObject({
+            status,
+          });
+        else
+          await expect(client.restoreSession()).resolves.toEqual(
+            status === 200 ? sessionResponse : null,
+          );
+        expect(signal).toBeInstanceOf(AbortSignal);
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(signal?.aborted).toBe(false);
+      } finally {
+        Object.defineProperty(AbortSignal, "timeout", { value: timeout });
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("keeps the fallback timeout active while reading the response body", async () => {
+    vi.useFakeTimers();
+    const timeout = AbortSignal.timeout;
+    Object.defineProperty(AbortSignal, "timeout", { value: undefined });
+    try {
+      let calls = 0;
+      const client = createAccountClient(async (_path, options) => {
+        if (++calls > 1) return json(sessionResponse);
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              options?.signal?.addEventListener("abort", () =>
+                controller.error(new DOMException("Aborted", "AbortError")),
+              );
+            },
+          }),
+        );
+      });
+      let outcome: unknown = "pending";
+      void client.restoreSession().then(
+        () => (outcome = "resolved"),
+        (error: unknown) => (outcome = error),
+      );
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect(outcome).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(outcome).toMatchObject({ status: 502 });
+      await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", { value: timeout });
+      vi.useRealTimers();
+    }
+  });
+
   it("logs in with exact credentials JSON and does not read or upload a board", async () => {
     const { client, calls } = fixture(json(sessionResponse));
     expect(await client.login("caregiver-test", "test-password")).toEqual(
@@ -264,6 +422,7 @@ describe("same-origin account client contract", () => {
         options: {
           method: "POST",
           credentials: "same-origin",
+          signal: expect.any(AbortSignal),
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             username: "caregiver-test",
@@ -280,7 +439,10 @@ describe("same-origin account client contract", () => {
     expect(calls).toEqual([
       {
         path: "/api/auth/session",
-        options: { credentials: "same-origin" },
+        options: {
+          credentials: "same-origin",
+          signal: expect.any(AbortSignal),
+        },
       },
     ]);
   });
@@ -336,6 +498,7 @@ describe("same-origin account client contract", () => {
       options: {
         method: "POST",
         credentials: "same-origin",
+        signal: expect.any(AbortSignal),
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": "csrf-test-only",
@@ -362,6 +525,7 @@ describe("same-origin account client contract", () => {
       options: {
         method: "PUT",
         credentials: "same-origin",
+        signal: expect.any(AbortSignal),
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": "csrf-test-only",
@@ -373,11 +537,15 @@ describe("same-origin account client contract", () => {
       board,
       revision: 0,
     });
-    expect(calls[1]).toEqual({
+    const boardRead = {
       path: "/api/board",
-      options: { credentials: "same-origin" },
-    });
-    expect(calls[3]).toEqual(calls[1]);
+      options: {
+        credentials: "same-origin",
+        signal: expect.any(AbortSignal),
+      },
+    };
+    expect(calls[1]).toEqual(boardRead);
+    expect(calls[3]).toEqual(boardRead);
     expect(board).toEqual(original);
   });
 

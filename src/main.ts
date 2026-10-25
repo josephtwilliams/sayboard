@@ -28,11 +28,13 @@ import { createThemeToggle } from "./theme-toggle";
 import { createLocalSpeech } from "./speech/local-speech";
 import { createCategoryNavigation } from "./category-navigation";
 import {
+  currentBoardKey,
   loadStoredBoard,
   saveStoredBoard,
   serializeBoard,
 } from "./board-storage";
 import { hasBoardChanges } from "./editor-state";
+import { createBoardTabSync } from "./board-tab-sync";
 import { columnsKey } from "./device-layout";
 import {
   deviceLayoutKey,
@@ -88,8 +90,10 @@ let board = starterBoard();
 let storageError = "";
 let storageBlocked = false;
 let hasStoredBoard = false;
+let storedBoardValue: string | null = null;
 let replacementAuthorizedDraft: Board | null = null;
 try {
+  if (!teacherDemo) storedBoardValue = localStorage.getItem(currentBoardKey);
   const loaded: ReturnType<typeof loadStoredBoard> = teacherDemo
     ? {
         kind: "loaded",
@@ -338,7 +342,15 @@ function persist(next: Board) {
     return false;
   }
   try {
-    saveStoredBoard(localStorage, next);
+    // Edits opened before another tab saved would replace its newer board.
+    const current = localStorage.getItem(currentBoardKey);
+    if (current !== null && current !== storedBoardValue) {
+      storageError =
+        "A newer board was saved in another tab or window. Reload this page before saving here.";
+      return false;
+    }
+    storedBoardValue = saveStoredBoard(localStorage, next);
+    boardTabSync.cancel();
     board = next;
     storageError = "";
     storageBlocked = false;
@@ -360,6 +372,37 @@ function persist(next: Board) {
     return false;
   }
 }
+// Both server publications and cross-tab saves wait for the same communication
+// boundary. In particular, rendering must not replace an active typing input.
+function communicationIdle() {
+  return (
+    draft === null &&
+    arrangement === null &&
+    selected === null &&
+    !typedMessagePending &&
+    heldPointers.size === 0 &&
+    Date.now() - lastInteraction >= 2000 &&
+    !document.querySelector("dialog[open]")
+  );
+}
+const boardTabSync = createBoardTabSync({
+  storage: { getItem: (key) => localStorage.getItem(key) },
+  currentValue: () => storedBoardValue,
+  canApply: communicationIdle,
+  apply: (latest, value) => {
+    board = latest;
+    storedBoardValue = value;
+    hasStoredBoard = true;
+    storageError = "";
+    storageBlocked = false;
+    render();
+  },
+});
+// Open edits retain their base; persist refuses stale drafts rather than losing
+// either tab's work. Deferred updates are checked again after edits are closed.
+window.addEventListener("storage", (event) => {
+  if (!teacherBoardRequest && !teacherDemo) boardTabSync.changed(event);
+});
 function exportBoard(value: Board) {
   try {
     const url = URL.createObjectURL(
@@ -1839,19 +1882,12 @@ if (teacherBoardRequest) {
     serverHint: document.cookie
       .split(";")
       .some((value) => value.trim() === "sayboard_classroom=1"),
-    canApply: () =>
-      !storageBlocked &&
-      draft === null &&
-      arrangement === null &&
-      selected === null &&
-      !typedMessagePending &&
-      heldPointers.size === 0 &&
-      Date.now() - lastInteraction >= 2000 &&
-      !document.querySelector("dialog[open]"),
+    canApply: () => !storageBlocked && communicationIdle(),
     apply: (publication) => {
       if (!publication.board) return false;
       try {
-        saveStoredBoard(localStorage, publication.board);
+        storedBoardValue = saveStoredBoard(localStorage, publication.board);
+        boardTabSync.cancel();
         board = structuredClone(publication.board);
         hasStoredBoard = true;
         storageError = "";

@@ -1,9 +1,14 @@
+import { createTeacherWorkspace } from "./teacher-workspace";
+import {
+  parseTeacherLocation,
+  teacherHref,
+  type WorkspaceSection,
+} from "./teacher-navigation";
 import { createElement as el, createButton as button } from "./dom";
 import { renderSymbol } from "./symbols";
 import { accountClient, AccountError } from "./account";
 import { teacherClient, ClassroomError } from "./classroom-client";
 import {
-  id,
   type Classroom,
   type ClassroomDetail,
   type ProfileDetail,
@@ -34,7 +39,11 @@ let pairing: { code: string; expiresAt: number } | null = null;
 const fieldValues = new Map<string, string>();
 let deviceStatusContainer: HTMLElement | null = null;
 let refreshingDevices = false;
-let nextFocus = "h1";
+let nextFocus = "";
+let workspaceSection: WorkspaceSection = "board";
+let activeActionURL: string | null = null;
+let routeRequest = 0;
+let requestedLocation = "";
 let exampleBoard: Board | null = null;
 try {
   exampleBoard = pendingTeacherDemo(sessionStorage);
@@ -322,6 +331,12 @@ function action(label: string, run: () => Promise<void>, primary = false) {
 async function perform(run: () => Promise<void>) {
   if (busy) return;
   busy = true;
+  const startingURL = location.href;
+  activeActionURL = startingURL;
+  const scrollPosition = window.scrollY;
+  const focused = document.activeElement;
+  const focusedLabel =
+    focused instanceof HTMLElement ? focused.textContent : null;
   root
     ?.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button")
     .forEach((control) => (control.disabled = true));
@@ -339,19 +354,41 @@ async function perform(run: () => Promise<void>) {
       clearPrivateView();
   } finally {
     busy = false;
-    render();
-    const target = root?.querySelector<HTMLElement>(
-      errorNotice ? ".teacher-status" : nextFocus,
-    );
-    if (target) {
-      target.tabIndex = -1;
-      target.focus({ preventScroll: true });
-      if (!errorNotice && nextFocus !== "h1")
-        target.scrollIntoView({ block: "center" });
+    activeActionURL = null;
+    if (
+      requestedLocation &&
+      requestedLocation !== startingURL &&
+      location.href === requestedLocation
+    ) {
+      await restoreWorkspaceLocation();
+      return;
     }
-    nextFocus = "h1";
+    const navigated = location.href !== startingURL;
+    render();
+    const target = errorNotice
+      ? root?.querySelector<HTMLElement>(".teacher-status")
+      : navigated
+        ? root?.querySelector<HTMLElement>("h1")
+        : nextFocus
+          ? root?.querySelector<HTMLElement>(nextFocus)
+          : Array.from(
+              root?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+            ).find(
+              (node) => node.textContent === focusedLabel && !node.disabled,
+            );
+    if (target) {
+      if (target.tagName !== "BUTTON" && target.tagName !== "INPUT")
+        target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+    }
+    window.scrollTo({
+      top: navigated ? 0 : scrollPosition,
+      behavior: "instant",
+    });
+    nextFocus = "";
   }
 }
+
 function clearPrivateView() {
   signedIn = false;
   operator = false;
@@ -359,17 +396,69 @@ function clearPrivateView() {
   room = null;
   profile = null;
   pairing = null;
+  workspaceSection = "board";
+  requestedLocation = "";
+  routeRequest++;
   fieldValues.clear();
   history.replaceState(null, "", location.pathname);
 }
-function rememberLocation() {
-  history.replaceState(
-    null,
-    "",
-    location.pathname +
-      (room ? `#${room.id}${profile ? "/" + profile.id : ""}` : ""),
+function rememberLocation(replace = false) {
+  if (activeActionURL && location.href !== activeActionURL) return;
+  const destination = teacherHref(
+    room
+      ? profile
+        ? {
+            kind: "learner",
+            classroomId: room.id,
+            profileId: profile.id,
+            section: workspaceSection,
+          }
+        : { kind: "classroom", classroomId: room.id }
+      : { kind: "classrooms" },
   );
+  if (location.pathname + location.hash === destination) return;
+  if (replace) history.replaceState(null, "", destination);
+  else history.pushState(null, "", destination);
+  if (activeActionURL) activeActionURL = location.href;
 }
+async function restoreWorkspaceLocation() {
+  if (!signedIn) return;
+  const destination = location.href;
+  requestedLocation = destination;
+  const ticket = ++routeRequest;
+  const route = parseTeacherLocation(location.hash);
+  if (!route) {
+    notice =
+      "This classroom address is invalid. Choose a classroom from the workspace.";
+    errorNotice = true;
+    render();
+    return;
+  }
+  const nextRoom =
+    route.kind === "classrooms"
+      ? null
+      : await teacherClient.classroom(route.classroomId);
+  const nextProfile =
+    route.kind === "learner" &&
+    nextRoom?.profiles.some((value) => value.id === route.profileId)
+      ? await teacherClient.profile(route.profileId)
+      : null;
+  if (ticket !== routeRequest || location.href !== destination) return;
+  room = nextRoom;
+  profile = nextProfile;
+  workspaceSection = route.kind === "learner" ? route.section : "board";
+  pairing = null;
+  if (!busy) {
+    render();
+    const heading = root?.querySelector<HTMLElement>("h1");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+}
+
 function form(
   key: string,
   labelText: string,
@@ -403,6 +492,7 @@ async function loadRoom(value: Classroom) {
   room = await teacherClient.classroom(value.id);
   profile = null;
   pairing = null;
+  workspaceSection = "board";
   rememberLocation();
   notice = "Choose a profile or add one below.";
 }
@@ -590,13 +680,6 @@ function render() {
   } else if (!profile) {
     const current = room;
     shell.append(
-      action("All classrooms", async () => {
-        rooms = await teacherClient.list();
-        room = null;
-        pairing = null;
-        rememberLocation();
-        notice = "Your classrooms are up to date.";
-      }),
       el("h1", "", current.name),
       el(
         "p",
@@ -622,6 +705,7 @@ function render() {
           async () => {
             profile = await teacherClient.profile(value.id);
             pairing = null;
+            workspaceSection = "board";
             rememberLocation();
             notice = "Edit the draft, then publish when it is ready.";
           },
@@ -675,11 +759,7 @@ function render() {
   } else {
     const current = profile;
     const classroom = room;
-    const connecting = current.publishedVersion > 0 && !current.devices.length;
-    const readyToPublish =
-      current.publishedVersion === 0 && current.revision > 1;
     shell.append(
-      action("Back to " + classroom.name, () => loadRoom(classroom)),
       el("h1", "", current.label),
       el(
         "p",
@@ -688,67 +768,11 @@ function render() {
       ),
       status,
     );
-    if (connecting) {
-      const next = el("section", "teacher-next-step");
-      const connect = button(
-        "Connect learner device",
-        () => {
-          const setup = root.querySelector<HTMLDetailsElement>(
-            "#teacher-device-setup",
-          );
-          if (setup) setup.open = true;
-          const name = root.querySelector<HTMLInputElement>("#teacher-device");
-          name?.focus({ preventScroll: true });
-          name?.scrollIntoView({ block: "center" });
-        },
-        "button primary",
-      );
-      connect.setAttribute("aria-controls", "teacher-device-setup");
-      next.append(
-        el(
-          "p",
-          "",
-          "Your board is published. Connect a learner's device to use it.",
-        ),
-        connect,
-      );
-      shell.append(next);
-    }
-    const progress = el("ol", "teacher-progress");
-    progress.setAttribute("aria-label", "Board setup");
-    for (const [title, detail] of [
-      ["1. Prepare", `Draft revision ${current.revision}`],
-      [
-        "2. Publish",
-        current.publishedVersion
-          ? `Version ${current.publishedVersion} available`
-          : "Not published yet",
-      ],
-      [
-        "3. Connect",
-        current.devices.length
-          ? `${current.devices.length} linked device${current.devices.length === 1 ? "" : "s"}`
-          : "No devices linked yet",
-      ],
-    ]) {
-      const step = el("li");
-      if (
-        (connecting && title === "3. Connect") ||
-        (readyToPublish && title === "2. Publish") ||
-        (!current.publishedVersion && !readyToPublish && title === "1. Prepare")
-      )
-        step.setAttribute("aria-current", "step");
-      const description = el("span", "", detail);
-      if (title === "3. Connect") description.dataset.deviceCount = "";
-      step.append(el("strong", "", title), description);
-      progress.append(step);
-    }
-    shell.append(progress);
     const grid = el("div", "teacher-profile-grid");
     const draft = el("section", "teacher-card teacher-draft");
     const homeTiles = current.board.tiles.filter(Boolean).length;
     draft.append(
-      el("h2", "", "1. Try and edit the draft board"),
+      el("h2", "", "Draft board"),
       el(
         "p",
         "",
@@ -758,11 +782,7 @@ function render() {
     const actions = el("div", "teacher-actions");
     const editor = `/?teacherBoard=${current.id}&classroom=${classroom.id}`;
     actions.append(
-      link(
-        "Edit board",
-        editor,
-        connecting || readyToPublish ? "button" : "button primary",
-      ),
+      link("Edit board", editor),
       link("Preview board", editor + "&preview=1"),
     );
     const boardPreview = el("div", "teacher-board-preview");
@@ -813,11 +833,7 @@ function render() {
     );
     draft.append(tools);
     grid.append(draft);
-    const publish = el(
-      "section",
-      "teacher-card teacher-publication" +
-        (connecting ? " teacher-publication-ready" : ""),
-    );
+    const publish = el("section", "teacher-card teacher-publication");
     publish.append(
       el(
         "h2",
@@ -844,20 +860,15 @@ function render() {
           room = await teacherClient.classroom(classroom.id);
           notice = profile.devices.length
             ? `Version ${profile.publishedVersion} published. Linked devices update automatically. Check their reports below to confirm receipt.`
-            : "Board published. Next, connect a learner's device below.";
-          if (!profile.devices.length) nextFocus = "#teacher-device";
+            : "Board published. Open Devices when you are ready to connect a learner’s device.";
         },
-        readyToPublish,
+        true,
       ),
     );
     grid.append(publish);
-    const devices = el(
-      "section",
-      "teacher-card teacher-devices" +
-        (connecting ? " teacher-active-step" : ""),
-    );
+    const devices = el("section", "teacher-card teacher-devices");
     devices.append(
-      el("h2", "", "3. Connect a learner device"),
+      el("h2", "", "Connected devices"),
       el(
         "p",
         "",
@@ -991,7 +1002,50 @@ function render() {
       "Boards and published vocabulary are stored on this server. Spoken messages and speech history are not collected. The communication board remains available without a teacher session.",
     ),
   );
-  root.append(shell);
+  if (signedIn) {
+    const actions: Node[] = [];
+    if (room && profile) {
+      const preview = Array.from(
+        shell.querySelectorAll<HTMLAnchorElement>(
+          ".teacher-draft .teacher-actions a",
+        ),
+      ).find((node) => node.textContent === "Preview board");
+      const publish = shell.querySelector<HTMLButtonElement>(
+        ".teacher-publication button",
+      );
+      const save = button("Save classroom draft", () => {});
+      save.disabled = true;
+      if (preview) actions.push(preview);
+      actions.push(save);
+      if (publish) actions.push(publish);
+      for (const panel of shell.querySelectorAll<HTMLElement>(
+        ".teacher-draft,.teacher-publication,.teacher-devices,.teacher-versions",
+      )) {
+        panel.hidden = panel.classList.contains("teacher-devices")
+          ? workspaceSection !== "devices"
+          : panel.classList.contains("teacher-versions")
+            ? workspaceSection !== "versions"
+            : workspaceSection !== "board";
+      }
+      const versions =
+        shell.querySelector<HTMLDetailsElement>(".teacher-versions");
+      if (versions && workspaceSection === "versions") versions.open = true;
+      const remove = shell.querySelector<HTMLElement>(".teacher-danger");
+      if (remove) remove.hidden = workspaceSection !== "board";
+      shell.querySelector(":scope > .teacher-intro")?.remove();
+    }
+    root.append(
+      createTeacherWorkspace({
+        content: shell,
+        room,
+        profile,
+        section: workspaceSection,
+        actions,
+        feedback: status,
+        title: shell.querySelector("h1")?.textContent ?? "Your classrooms",
+      }),
+    );
+  } else root.append(shell);
   if (busy)
     root
       .querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button")
@@ -1001,12 +1055,27 @@ setInterval(() => void refreshDeviceReports(), 5000);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void refreshDeviceReports();
 });
-// Opening another private link in this tab changes only the fragment. Start a
-// fresh activation page rather than leaving the signed-in workspace on screen.
-window.addEventListener("hashchange", () => {
-  if (new URLSearchParams(location.hash.slice(1)).has("activate"))
+function handleLocationChange() {
+  if (new URLSearchParams(location.hash.slice(1)).has("activate")) {
     location.reload();
-});
+    return;
+  }
+  if (requestedLocation === location.href) return;
+  const destination = location.href;
+  void restoreWorkspaceLocation().catch((error) => {
+    if (location.href !== destination) return;
+    notice =
+      error instanceof Error
+        ? error.message
+        : "This classroom could not be opened.";
+    errorNotice = true;
+    if (error instanceof ClassroomError && [401, 403].includes(error.status))
+      clearPrivateView();
+    render();
+  });
+}
+window.addEventListener("hashchange", handleLocationChange);
+window.addEventListener("popstate", handleLocationChange);
 const activation = new URLSearchParams(location.hash.slice(1)).get("activate");
 const googleNotice = googleSignInNotice();
 if (activation !== null) {
@@ -1035,16 +1104,8 @@ if (activation !== null) {
     rooms = await teacherClient.list();
     operator = await canInvite();
     signedIn = true;
-    const parts = location.hash.slice(1).split("/");
-    if (parts[0]) {
-      const classroom = rooms.find((value) => value.id === id(parts[0]));
-      if (classroom) {
-        room = await teacherClient.classroom(classroom.id);
-        if (parts[1] && room.profiles.some((p) => p.id === parts[1]))
-          profile = await teacherClient.profile(id(parts[1]));
-      }
-    }
-    rememberLocation();
+    await restoreWorkspaceLocation();
+    rememberLocation(true);
     notice = "Your classroom workspace is up to date.";
   });
 }

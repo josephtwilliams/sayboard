@@ -341,10 +341,48 @@ export async function checkClassroomFlow({
       ),
       null,
     );
+    // These destinations must remain real browser-history entries.
+    const workspaceLinks = await page
+      .getByRole("navigation", { name: "Learner workspace", exact: true })
+      .getByRole("link")
+      .allTextContents();
+    assert.deepEqual(workspaceLinks, ["Board", "Devices", "Versions"]);
+    const learnerURL = page.url();
+    await page
+      .getByRole("navigation", { name: "Location", exact: true })
+      .getByRole("link", { name: classroomName, exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: classroomName, exact: true })
+      .waitFor();
+    await page.goBack();
+    await page
+      .getByRole("heading", { name: "Demo learner", exact: true })
+      .waitFor();
+    assert.equal(page.url(), learnerURL);
+    await page.goForward();
+    await page
+      .getByRole("heading", { name: classroomName, exact: true })
+      .waitFor();
+    await page.goBack();
+    await page
+      .getByRole("heading", { name: "Demo learner", exact: true })
+      .waitFor();
+    await page.getByRole("link", { name: "Devices", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Connected devices", exact: true })
+      .waitFor();
+    assert.ok(new URL(page.url()).hash.endsWith("/devices"));
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "Connected devices", exact: true })
+      .waitFor();
+    await page.goBack();
+    await page.getByRole("link", { name: "Edit board", exact: true }).waitFor();
     const changeDraft = async (previous, next) => {
-      await page.getByRole("link", { name: "Edit board", exact: true }).click();
+      await page.getByRole("link", { name: "Board", exact: true }).click();
       await page
-        .getByRole("heading", { name: "Edit Demo learner", exact: true })
+        .getByRole("heading", { name: "Demo learner", exact: true })
         .waitFor();
       await page
         .getByRole("button", { name: "Edit " + previous, exact: true })
@@ -354,8 +392,84 @@ export async function checkClassroomFlow({
       await page
         .getByRole("button", { name: "Apply changes", exact: true })
         .click();
+      if (previous === "Example hello") {
+        await page
+          .getByRole("button", { name: "Done editing", exact: true })
+          .click();
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit " + next, exact: true })
+          .waitFor();
+        assert.equal(
+          await page
+            .getByRole("button", { name: "Publish saved draft", exact: true })
+            .isDisabled(),
+          true,
+        );
+      }
+      if (previous === "Example hello") {
+        const saveURL = "**/api/profiles/" + ids[1];
+        await teacher.route(saveURL, (route) =>
+          route.request().method() === "PUT"
+            ? route.fulfill({
+                status: 503,
+                json: { error: "storage_unavailable" },
+              })
+            : route.continue(),
+        );
+        await page
+          .getByRole("button", { name: "Save classroom draft", exact: true })
+          .click();
+        await page.locator(".teacher-board-feedback.error").waitFor();
+        await page
+          .getByRole("button", { name: "Edit " + next, exact: true })
+          .waitFor();
+        assert.equal(
+          await page
+            .getByRole("button", { name: "Publish saved draft", exact: true })
+            .isDisabled(),
+          true,
+        );
+        await teacher.unroute(saveURL);
+      }
+      const editingURL = page.url();
       await page
         .getByRole("button", { name: "Save classroom draft", exact: true })
+        .click();
+      await page
+        .locator(".teacher-board-feedback")
+        .filter({ hasText: "Classroom draft saved" })
+        .waitFor();
+      assert.equal(
+        page.url(),
+        editingURL,
+        "Save must keep the current editor address",
+      );
+      assert.ok(
+        new URL(page.url()).searchParams.has("teacherBoard"),
+        "Saving keeps the editor open",
+      );
+      if (previous === "Example hello") {
+        const originalViewport = page.viewportSize();
+        for (const width of [320, 390, 768, 1280]) {
+          await page.setViewportSize({ width, height: 900 });
+          assert.equal(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+            true,
+            "Teacher editor fits " + width + "px",
+          );
+        }
+        await page.setViewportSize(originalViewport);
+        if (artifactDirectory)
+          await page.screenshot({
+            path: artifactDirectory + `/teacher-editor-${engine}.png`,
+            fullPage: false,
+          });
+      }
+      await page
+        .getByRole("button", { name: "Done editing", exact: true })
         .click();
       await page.waitForURL(/\/teacher#/);
       await page
@@ -389,7 +503,7 @@ export async function checkClassroomFlow({
       .getByRole("button", { name: "Say Water", exact: true })
       .waitFor();
     await page
-      .getByRole("button", { name: "Teacher dashboard", exact: true })
+      .getByRole("button", { name: "Done editing", exact: true })
       .click();
     await page
       .getByRole("heading", { name: "Demo learner", exact: true })
@@ -400,7 +514,30 @@ export async function checkClassroomFlow({
         .click();
       await confirm(page);
     };
+    const toolbarBeforePublish = await page
+      .locator(".workspace-toolbar")
+      .boundingBox();
+    const publishedURL = page.url();
     await publish();
+    assert.equal(
+      page.url(),
+      publishedURL,
+      "Publish must keep the workspace address",
+    );
+    const toolbarAfterPublish = await page
+      .locator(".workspace-toolbar")
+      .boundingBox();
+    assert.ok(
+      Math.abs(toolbarAfterPublish.y - toolbarBeforePublish.y) <= 2,
+      "Publishing must not jump to device setup",
+    );
+    assert.deepEqual(
+      await page
+        .getByRole("navigation", { name: "Learner workspace", exact: true })
+        .getByRole("link")
+        .allTextContents(),
+      workspaceLinks,
+    );
     await page
       .getByRole("heading", { name: "Published version 1", exact: true })
       .waitFor();
@@ -411,15 +548,10 @@ export async function checkClassroomFlow({
         fullPage: true,
       });
     }
+    await page.getByRole("link", { name: "Devices", exact: true }).click();
     await page
-      .getByRole("button", { name: "Connect learner device", exact: true })
-      .click();
-    assert.equal(
-      await page
-        .getByLabel("Device name", { exact: true })
-        .evaluate((node) => document.activeElement === node),
-      true,
-    );
+      .getByRole("heading", { name: "Connected devices", exact: true })
+      .waitFor();
     await page.getByLabel("Device name", { exact: true }).fill("Demo tablet");
     await page
       .getByRole("button", { name: "Create pairing code", exact: true })
@@ -587,6 +719,7 @@ export async function checkClassroomFlow({
       .getByRole("heading", { name: "Published version 2", exact: true })
       .waitFor();
     await applied("Published two", untouchedAt);
+    await page.getByRole("link", { name: "Devices", exact: true }).click();
     await page
       .locator(".teacher-device-row")
       .filter({ hasText: "Demo tablet" })
@@ -600,7 +733,7 @@ export async function checkClassroomFlow({
     }
     await reloadDevice("Published two");
 
-    await page.locator(".teacher-versions > summary").click();
+    await page.getByRole("link", { name: "Versions", exact: true }).click();
     await page
       .getByRole("button", { name: "Restore version 1 to draft", exact: true })
       .click();

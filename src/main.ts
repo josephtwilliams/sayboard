@@ -1,3 +1,5 @@
+import { createTeacherWorkspace } from "./teacher-workspace";
+import { teacherHref } from "./teacher-navigation";
 import { createElement as el, createButton as button } from "./dom";
 import { createBoardArranger, type ArrangementSession } from "./board-arranger";
 import "./board-arranger.css";
@@ -16,7 +18,11 @@ import {
   teacherDemoPendingKey,
 } from "./teacher-demo";
 import { accountClient } from "./account";
-import { id, type ProfileDetail } from "./classroom-contract";
+import {
+  id,
+  type ProfileDetail,
+  type ClassroomDetail,
+} from "./classroom-contract";
 import { createSymbolPicker } from "./symbol-picker";
 import { placeTile, isTileSize } from "./layout";
 import { loadTheme, applyTheme } from "./theme";
@@ -65,6 +71,10 @@ const teacherDemo =
   teacherParameters.get("teacherDemo") === "1" && !teacherBoardRequest;
 let teacherEditing: ProfileDetail | null = null;
 let teacherSaving = false;
+let teacherClassroom: ClassroomDetail | null = null;
+let teacherPreviewing = false;
+let teacherNotice = "";
+let teacherNoticeError = false;
 function teacherDashboard() {
   const classroom = teacherParameters.get("classroom");
   return (
@@ -559,7 +569,7 @@ function render() {
   }
   updateThemeButton();
   const caregiver = button(
-    teacherEditing ? "Teacher dashboard" : draft ? "Back to board" : "",
+    teacherEditing ? "Done editing" : draft ? "Back to board" : "",
     async () => {
       if (teacherEditing) {
         if (
@@ -707,7 +717,7 @@ function render() {
         },
       }),
     );
-  } else if (draft) {
+  } else if (draft && !teacherPreviewing) {
     renderEditor(shell, draft);
   } else {
     shell.append(el("h1", "sr-only", "Communication board"));
@@ -741,7 +751,7 @@ function render() {
         emptyCaregiver,
       );
       shell.append(empty, typeAndSpeak());
-      root.append(shell);
+      root.append(teacherEditing ? wrapTeacherBoard(shell) : shell);
       fullscreen.refresh();
       return;
     }
@@ -790,7 +800,7 @@ function render() {
     viewport.append(grid);
     shell.append(viewport, typeAndSpeak());
   }
-  root.append(shell);
+  root.append(teacherEditing ? wrapTeacherBoard(shell) : shell);
   fullscreen.refresh();
   if (teacherSaving)
     root
@@ -799,6 +809,135 @@ function render() {
       >("input,button,select")
       .forEach((control) => (control.disabled = true));
 }
+async function saveTeacherDraft(working: Board) {
+  if (!teacherEditing || teacherSaving) return;
+  teacherSaving = true;
+  const scrollPosition = window.scrollY;
+  render();
+  try {
+    const saved = await teacherClient.save(
+      teacherEditing.id,
+      teacherEditing.revision,
+      structuredClone(working),
+    );
+    teacherEditing = saved;
+    board = structuredClone(saved.board);
+    draft = structuredClone(saved.board);
+    teacherNotice = "Classroom draft saved. Publish when you are ready.";
+    teacherNoticeError = false;
+  } catch (error) {
+    teacherNoticeError = true;
+    teacherNotice =
+      error instanceof Error
+        ? error.message
+        : "The draft could not be saved. Try again or export a copy.";
+  } finally {
+    teacherSaving = false;
+    render();
+    document
+      .querySelector<HTMLButtonElement>(".workspace-save")
+      ?.focus({ preventScroll: true });
+    window.scrollTo({ top: scrollPosition, behavior: "instant" });
+  }
+}
+async function publishTeacherDraft() {
+  if (!teacherEditing || teacherSaving || hasUnsavedDraft()) return;
+  if (
+    !(await confirmChange(
+      `Publish the saved draft for ${teacherEditing.label}? Linked devices update when communication is idle.`,
+    ))
+  )
+    return;
+  teacherSaving = true;
+  const scrollPosition = window.scrollY;
+  render();
+  try {
+    teacherEditing = await teacherClient.publish(
+      teacherEditing.id,
+      teacherEditing.revision,
+    );
+    teacherNotice = `Version ${teacherEditing.publishedVersion} published. Linked devices update automatically.`;
+    teacherNoticeError = false;
+  } catch (error) {
+    teacherNoticeError = true;
+    teacherNotice =
+      error instanceof Error
+        ? error.message
+        : "The saved draft could not be published.";
+  } finally {
+    teacherSaving = false;
+    render();
+    document
+      .querySelector<HTMLButtonElement>(".workspace-publish")
+      ?.focus({ preventScroll: true });
+    window.scrollTo({ top: scrollPosition, behavior: "instant" });
+  }
+}
+function wrapTeacherBoard(shell: HTMLElement): HTMLElement {
+  if (!teacherEditing || !teacherClassroom) return shell;
+  const oldHeader = shell.querySelector(".header");
+  const done = oldHeader?.querySelector<HTMLButtonElement>(".caregiver-access");
+  oldHeader?.remove();
+  const feedback = el("p", "teacher-board-feedback");
+  feedback.role = "status";
+  feedback.setAttribute("aria-live", "polite");
+  const preview = button("Preview board", () => {
+    stop();
+    teacherPreviewing = !teacherPreviewing;
+    render();
+  });
+  preview.setAttribute("aria-pressed", String(teacherPreviewing));
+  const save = button(
+    "Save classroom draft",
+    () => void saveTeacherDraft(draft ?? board),
+    "button workspace-save",
+  );
+  const publish = button(
+    "Publish saved draft",
+    () => void publishTeacherDraft(),
+    "button primary workspace-publish",
+  );
+  function updateActions() {
+    const dirty = hasUnsavedDraft();
+    feedback.textContent = teacherSaving
+      ? "Saving classroom changes…"
+      : teacherNoticeError
+        ? teacherNotice
+        : dirty
+          ? "Unsaved changes. Save the draft before publishing."
+          : teacherNotice || "Draft saved";
+    feedback.classList.toggle("error", teacherNoticeError);
+    publish.disabled = dirty || teacherSaving;
+    save.disabled = teacherSaving;
+  }
+  updateActions();
+  shell.addEventListener("input", updateActions);
+  shell.addEventListener("change", updateActions);
+  const workspace = createTeacherWorkspace({
+    content: shell,
+    room: teacherClassroom,
+    profile: teacherEditing,
+    section: "board",
+    actions: [preview, save, publish],
+    feedback,
+    title: teacherEditing.label,
+  });
+  if (done) {
+    done.className = "button quiet";
+    workspace.querySelector(".workspace-global")?.append(done);
+  }
+  // The browser's native unsaved-change prompt also covers workspace links.
+  const overview = el("a", "workspace-overview", "Learner overview");
+  overview.href = teacherHref({
+    kind: "learner",
+    classroomId: teacherClassroom.id,
+    profileId: teacherEditing.id,
+    section: "board",
+  });
+  workspace.querySelector(".workspace-breadcrumbs")?.append(overview);
+  return workspace;
+}
+
 function typeAndSpeak() {
   return createTypeAndSpeak({
     text: typedText,
@@ -865,33 +1004,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
     teacherEditing ? "Save classroom draft" : "Save board",
     async () => {
       if (teacherEditing) {
-        if (teacherSaving) return;
-        teacherSaving = true;
-        document
-          .querySelectorAll<
-            HTMLInputElement | HTMLButtonElement | HTMLSelectElement
-          >("#app input, #app button, #app select")
-          .forEach((control) => (control.disabled = true));
-        try {
-          const saved = await teacherClient.save(
-            teacherEditing.id,
-            teacherEditing.revision,
-            structuredClone(working),
-          );
-          teacherEditing = saved;
-          board = saved.board;
-          draft = null;
-          location.assign(teacherDashboard());
-        } catch (error) {
-          teacherSaving = false;
-          render();
-          status(
-            error instanceof Error
-              ? error.message
-              : "The classroom draft could not be saved. Export it before leaving.",
-            true,
-          );
-        }
+        await saveTeacherDraft(working);
         return;
       }
       if (persist(working)) {
@@ -1664,10 +1777,17 @@ if (teacherBoardRequest) {
         throw new Error("Sign in to the teacher workspace to open this board.");
       teacherEditing = await teacherClient.profile(profileId);
       board = structuredClone(teacherEditing.board);
-      draft =
-        teacherParameters.get("preview") === "1"
-          ? null
-          : structuredClone(board);
+      const classroomId = teacherParameters.get("classroom");
+      if (classroomId)
+        teacherClassroom = await teacherClient.classroom(id(classroomId));
+      if (
+        !teacherClassroom?.profiles.some(
+          (value) => value.id === teacherEditing?.id,
+        )
+      )
+        throw new Error("Open this learner from their classroom workspace.");
+      teacherPreviewing = teacherParameters.get("preview") === "1";
+      draft = structuredClone(board);
       storageError = "";
       storageBlocked = false;
       activeBoardId = null;
@@ -1758,8 +1878,7 @@ if (teacherBoardRequest) {
 function syncDescription() {
   const state = classroomSyncState;
   if (state.kind !== "linked") return "";
-  if (state.status === "offline")
-    return "Classroom offline. Using saved board";
+  if (state.status === "offline") return "Classroom offline. Using saved board";
   if (state.status === "storage-error")
     return "Update could not be saved. Current board kept";
   if (state.status === "waiting" && state.publishedVersion)

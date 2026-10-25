@@ -907,12 +907,12 @@ function wrapTeacherBoard(shell: HTMLElement): HTMLElement {
   });
   preview.setAttribute("aria-pressed", String(teacherPreviewing));
   const save = button(
-    "Save classroom draft",
+    "Save draft",
     () => void saveTeacherDraft(draft ?? board),
     "button workspace-save",
   );
   const publish = button(
-    "Publish saved draft",
+    "Publish",
     () => void publishTeacherDraft(),
     "button primary workspace-publish",
   );
@@ -1027,7 +1027,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
       "p",
       "subtitle",
       teacherEditing
-        ? "Changes stay in this draft until you save to the teacher workspace. Publish separately from the dashboard. The device board is unchanged."
+        ? "Save to keep your classroom draft changes. Publish when you are ready to update linked devices."
         : teacherDemo
           ? "Change a few words to try the editor. Save board keeps this example in this tab. Save changes and continue to teacher workspace lets you keep it after sign-in."
           : "Make this board work for the person using it. Save your changes when you’re ready to return to the board.",
@@ -1036,7 +1036,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
   const tools = el("div", "editor-toolbar");
   const saveTools = el("div", "editor-toolbar editor-save-tools");
   const saveBoardButton = button(
-    teacherEditing ? "Save classroom draft" : "Save board",
+    teacherEditing ? "Save draft" : "Save board",
     async () => {
       if (teacherEditing) {
         await saveTeacherDraft(working);
@@ -1122,7 +1122,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
     "notice",
     storageError ||
       (teacherEditing
-        ? "Save classroom draft stores these changes in your teacher workspace. Publish separately to make a version available to linked devices."
+        ? "Save draft stores your classroom changes. Publish makes the saved version available to linked devices."
         : teacherDemo
           ? "This example stays in this tab. Export a copy before closing the tab or switching devices."
           : "Changes stay on this device until you choose to save an account copy. Export a backup to move your board."),

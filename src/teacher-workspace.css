@@ -274,7 +274,10 @@
 }
 .workspace-title-row > .button {
   margin-bottom: 18px;
-}
-.workspace-title-row > .button {
   min-width: 140px;
+}
+@media (max-width: 760px) {
+  .teacher-workspace .workspace-toolbar .workspace-feedback {
+    min-height: 72px;
+  }
 }

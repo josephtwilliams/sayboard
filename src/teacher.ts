@@ -115,8 +115,7 @@ function firstBoardForm() {
       fieldValues.delete("first-learner");
       fieldValues.delete("profile");
       rememberLocation();
-      notice =
-        "Your first board is ready. Try it, or edit the words for your learner.";
+      notice = "Board ready. Edit the words or preview it.";
     });
   };
   return setup;
@@ -848,7 +847,7 @@ function render() {
         "Publish the saved draft to linked devices. Each learner keeps their current board until they finish speaking or editing.",
       ),
       action(
-        "Publish saved draft",
+        "Publish",
         async () => {
           if (
             !(await confirm(
@@ -860,7 +859,7 @@ function render() {
           room = await teacherClient.classroom(classroom.id);
           notice = profile.devices.length
             ? `Version ${profile.publishedVersion} published. Linked devices update automatically. Check their reports below to confirm receipt.`
-            : "Board published. Open Devices when you are ready to connect a learner’s device.";
+            : `Version ${profile.publishedVersion} published. Open Devices to connect a learner.`;
         },
         true,
       ),
@@ -888,7 +887,7 @@ function render() {
       form("device", "Device name", "Create pairing code", async (name) => {
         pairing = await teacherClient.pairing(current.id, name);
         notice =
-          "Enter this code on the intended device within ten minutes and confirm the initial connection. Future publications sync automatically. Creating another code replaces this one.";
+          "Pairing code ready. Enter it on the learner’s device within ten minutes.";
       }),
     );
     const instructions = setup.querySelector("ol");
@@ -1019,7 +1018,7 @@ function render() {
       const publish = shell.querySelector<HTMLButtonElement>(
         ".teacher-publication button",
       );
-      const save = button("Save classroom draft", () => {});
+      const save = button("Save draft", () => {});
       save.disabled = true;
       if (preview) actions.push(preview);
       actions.push(save);

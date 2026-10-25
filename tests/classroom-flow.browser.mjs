@@ -402,7 +402,7 @@ export async function checkClassroomFlow({
           .waitFor();
         assert.equal(
           await page
-            .getByRole("button", { name: "Publish saved draft", exact: true })
+            .getByRole("button", { name: "Publish", exact: true })
             .isDisabled(),
           true,
         );
@@ -418,7 +418,7 @@ export async function checkClassroomFlow({
             : route.continue(),
         );
         await page
-          .getByRole("button", { name: "Save classroom draft", exact: true })
+          .getByRole("button", { name: "Save draft", exact: true })
           .click();
         await page.locator(".teacher-board-feedback.error").waitFor();
         await page
@@ -426,7 +426,7 @@ export async function checkClassroomFlow({
           .waitFor();
         assert.equal(
           await page
-            .getByRole("button", { name: "Publish saved draft", exact: true })
+            .getByRole("button", { name: "Publish", exact: true })
             .isDisabled(),
           true,
         );
@@ -434,7 +434,7 @@ export async function checkClassroomFlow({
       }
       const editingURL = page.url();
       await page
-        .getByRole("button", { name: "Save classroom draft", exact: true })
+        .getByRole("button", { name: "Save draft", exact: true })
         .click();
       await page
         .locator(".teacher-board-feedback")
@@ -509,13 +509,11 @@ export async function checkClassroomFlow({
       .getByRole("heading", { name: "Demo learner", exact: true })
       .waitFor();
     const publish = async () => {
-      await page
-        .getByRole("button", { name: "Publish saved draft", exact: true })
-        .click();
+      await page.getByRole("button", { name: "Publish", exact: true }).click();
       await confirm(page);
     };
     const toolbarBeforePublish = await page
-      .locator(".workspace-toolbar")
+      .getByRole("button", { name: "Publish", exact: true })
       .boundingBox();
     const publishedURL = page.url();
     await publish();
@@ -525,7 +523,7 @@ export async function checkClassroomFlow({
       "Publish must keep the workspace address",
     );
     const toolbarAfterPublish = await page
-      .locator(".workspace-toolbar")
+      .getByRole("button", { name: "Publish", exact: true })
       .boundingBox();
     assert.ok(
       Math.abs(toolbarAfterPublish.y - toolbarBeforePublish.y) <= 2,

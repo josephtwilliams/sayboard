@@ -11,6 +11,8 @@ export type ModelStatus =
 export type SpeakOptions = {
   rate?: number;
   systemVoiceURI?: string;
+  // The device voice failed, but queued local audio can still speak this tap.
+  onPendingLocal?: () => void;
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (detail: string) => void;
@@ -142,6 +144,7 @@ export class SpeechEngine {
     const guarded: SpeakOptions = {
       ...options,
       rate: Math.max(0.5, Math.min(1.5, Number.isFinite(options.rate) ? options.rate ?? 1 : 1)),
+      onPendingLocal: () => { if (current()) options.onPendingLocal?.(); },
       onStart: () => { if (current()) options.onStart?.(); },
       onEnd: () => { if (current()) options.onEnd?.(); },
       onError: detail => { if (current()) options.onError?.(detail); },
@@ -161,6 +164,10 @@ export class SpeechEngine {
       this.output.system(text, guarded); return;
     }
     let fallbackSpoken = false;
+    // Without an on-device voice, local audio is the only speech for this tap.
+    // Hold the device error while queued local audio can still play.
+    let awaitingLocal = false;
+    let deviceError: string | undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const clearDeadline = () => {
       if (timer !== null) clearTimeout(timer);
@@ -172,7 +179,7 @@ export class SpeechEngine {
         fallbackSpoken = true;
         // Also invalidate audio awaiting permission/resume, before device speech.
         this.output.cancel();
-        this.output.system(text, guarded);
+        this.output.system(text, { ...guarded, onError: detail => { if (awaitingLocal) { deviceError = detail; guarded.onPendingLocal?.(); } else guarded.onError?.(detail); } });
       }
     };
     const fail = () => {
@@ -199,6 +206,7 @@ export class SpeechEngine {
     // iOS requires the first device speech call inside the tap. Inference and
     // resuming a suspended AudioContext can miss it, so speak now and warm audio.
     clearDeadline();
+    awaitingLocal = true;
     fallback();
     this.pending = async () => {
       try {
@@ -209,8 +217,10 @@ export class SpeechEngine {
           this.rememberAudio(key, audio);
         }
         // A late result warms the cache, but must not speak a second time.
-        if (current() && !fallbackSpoken) await play(audio);
+        if (current() && (!fallbackSpoken || deviceError !== undefined)) { await play(audio); deviceError = undefined; }
       } catch { fail(); }
+      awaitingLocal = false;
+      if (deviceError !== undefined) guarded.onError?.(deviceError);
     };
     void this.drain();
   }

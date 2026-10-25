@@ -57,6 +57,7 @@ jobs:
       - run: node tests/symbol-picker.browser.mjs
       - run: node tests/settings-phone-layout.browser.mjs
       - run: node tests/type-and-speak.browser.mjs
+      - run: node tests/browser/slow-local-speech.mjs
       - run: node tests/browser/sound-help.mjs
       - run: node tests/browser/arrangement.mjs
       - run: node tests/browser/fullscreen-app.mjs

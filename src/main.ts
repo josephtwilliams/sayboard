@@ -275,6 +275,14 @@ function speakText(phrase: string, id: string | null, settings: Board = board) {
   localSpeech.engine.speak(phrase, {
     rate: settings.rate,
     systemVoiceURI: settings.voice,
+    onPendingLocal: () => {
+      if (token === speechToken) {
+        // Kokoro permits 30 seconds per generation. Allow one older job to
+        // finish, then this tap's job and audio resume, without removing the
+        // watchdog for a stalled output or calling audible onStart early.
+        armWatchdog(65000);
+      }
+    },
     onStart: () => {
       if (token === speechToken) {
         status(`Speaking: ${phrase}`);

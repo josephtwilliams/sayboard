@@ -1004,12 +1004,18 @@ function render() {
   );
   if (signedIn) {
     const actions: Node[] = [];
+    let contextAction: Node | undefined;
     if (room && profile) {
       const preview = Array.from(
         shell.querySelectorAll<HTMLAnchorElement>(
           ".teacher-draft .teacher-actions a",
         ),
       ).find((node) => node.textContent === "Preview board");
+      contextAction = Array.from(
+        shell.querySelectorAll<HTMLAnchorElement>(
+          ".teacher-draft .teacher-actions a",
+        ),
+      ).find((node) => node.textContent === "Edit board");
       const publish = shell.querySelector<HTMLButtonElement>(
         ".teacher-publication button",
       );
@@ -1041,6 +1047,7 @@ function render() {
         profile,
         section: workspaceSection,
         actions,
+        contextAction,
         feedback: status,
         title: shell.querySelector("h1")?.textContent ?? "Your classrooms",
       }),

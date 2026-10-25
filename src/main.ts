@@ -1,5 +1,4 @@
 import { createTeacherWorkspace } from "./teacher-workspace";
-import { teacherHref } from "./teacher-navigation";
 import { createElement as el, createButton as button } from "./dom";
 import { createBoardArranger, type ArrangementSession } from "./board-arranger";
 import "./board-arranger.css";
@@ -219,6 +218,18 @@ async function confirmChange(message: string): Promise<boolean> {
   });
 }
 function status(text: string, error = false) {
+  if (teacherEditing && error) {
+    teacherNotice = text;
+    teacherNoticeError = true;
+    const feedback = document.querySelector<HTMLElement>(
+      ".teacher-board-feedback",
+    );
+    if (feedback) {
+      feedback.textContent = text;
+      feedback.classList.add("error");
+    }
+  }
+
   const node = document.querySelector<HTMLElement>("#status");
   if (node) {
     node.textContent = text;
@@ -875,6 +886,14 @@ async function publishTeacherDraft() {
 }
 function wrapTeacherBoard(shell: HTMLElement): HTMLElement {
   if (!teacherEditing || !teacherClassroom) return shell;
+  shell.querySelector(":scope > .subtitle")?.remove();
+  const editorNotice = shell.querySelector<HTMLElement>(
+    ":scope > #status.notice",
+  );
+  if (editorNotice) {
+    editorNotice.className = "sr-only";
+    editorNotice.textContent = "";
+  }
   const oldHeader = shell.querySelector(".header");
   const done = oldHeader?.querySelector<HTMLButtonElement>(".caregiver-access");
   oldHeader?.remove();
@@ -919,22 +938,38 @@ function wrapTeacherBoard(shell: HTMLElement): HTMLElement {
     profile: teacherEditing,
     section: "board",
     actions: [preview, save, publish],
+    contextAction: done ?? undefined,
     feedback,
     title: teacherEditing.label,
   });
-  if (done) {
-    done.className = "button quiet";
-    workspace.querySelector(".workspace-global")?.append(done);
-  }
-  // The browser's native unsaved-change prompt also covers workspace links.
-  const overview = el("a", "workspace-overview", "Learner overview");
-  overview.href = teacherHref({
-    kind: "learner",
-    classroomId: teacherClassroom.id,
-    profileId: teacherEditing.id,
-    section: "board",
-  });
-  workspace.querySelector(".workspace-breadcrumbs")?.append(overview);
+  if (done) done.className = "button quiet";
+  const signOut = button(
+    "Sign out",
+    () =>
+      void (async () => {
+        if (
+          hasUnsavedDraft() &&
+          !(await confirmChange(
+            "Discard unsaved classroom changes and sign out?",
+          ))
+        )
+          return;
+        try {
+          await accountClient.logout();
+          stop();
+          draft = null;
+          location.assign("/teacher");
+        } catch (error) {
+          teacherNoticeError = true;
+          teacherNotice =
+            error instanceof Error
+              ? error.message
+              : "Sign out failed. Your draft is still open.";
+          render();
+        }
+      })(),
+  );
+  workspace.querySelector(".workspace-global")?.append(signOut);
   return workspace;
 }
 

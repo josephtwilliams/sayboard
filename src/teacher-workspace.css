@@ -264,3 +264,17 @@
 [data-theme="dark"] .workspace-actions button[aria-pressed="true"] {
   background: #344a2c;
 }
+.workspace-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 60px;
+}
+.workspace-title-row > .button {
+  margin-bottom: 18px;
+}
+.workspace-title-row > .button {
+  min-width: 140px;
+}

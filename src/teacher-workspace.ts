@@ -23,6 +23,7 @@ export function createTeacherWorkspace({
   actions,
   feedback,
   title,
+  contextAction,
 }: {
   content: HTMLElement;
   room: ClassroomDetail | null;
@@ -31,6 +32,7 @@ export function createTeacherWorkspace({
   actions: Node[];
   feedback: HTMLElement;
   title: string;
+  contextAction?: Node;
 }): HTMLElement {
   const workspace = el("div", "teacher-workspace");
   const header = el("header", "workspace-header");
@@ -114,11 +116,27 @@ export function createTeacherWorkspace({
       link(room.name, teacherHref({ kind: "classroom", classroomId: room.id })),
     );
   if (profile)
-    breadcrumbs.append(el("span", "", "/"), el("span", "", profile.label));
+    breadcrumbs.append(
+      el("span", "", "/"),
+      room
+        ? link(
+            profile.label,
+            teacherHref({
+              kind: "learner",
+              classroomId: room.id,
+              profileId: profile.id,
+              section: "board",
+            }),
+          )
+        : el("span", "", profile.label),
+    );
   const heading = el("h1", "", title);
   content.querySelector(":scope > h1")?.remove();
   const pageHeader = el("div", "workspace-page-header");
-  pageHeader.append(breadcrumbs, heading);
+  const titleRow = el("div", "workspace-title-row");
+  titleRow.append(heading);
+  if (contextAction) titleRow.append(contextAction);
+  pageHeader.append(breadcrumbs, titleRow);
   const toolbar = el("div", "workspace-toolbar");
   feedback.classList.add("workspace-feedback");
   const buttons = el("div", "workspace-actions");

@@ -139,6 +139,31 @@ let selected: string | null = null;
 let typedText = "";
 let typedMessagePending = false;
 let lastInteraction = 0;
+let categoryTap = { boardId: "", time: -Infinity, area: new DOMRect() };
+// The second tap of a double tap on a category would otherwise land on
+// whatever replaced it: a word, or Type and Speak below a short category.
+// Its mousedown would also focus that control and could open the keyboard.
+// Keyboard and switch clicks have no detail.
+for (const type of ["mousedown", "click"] as const)
+  document.addEventListener(
+    type,
+    (event) => {
+      const { boardId, time, area } = categoryTap;
+      if (
+        event.detail > 0 &&
+        activeBoardId === boardId &&
+        event.timeStamp - time < 400 &&
+        event.clientX >= area.left &&
+        event.clientX <= area.right &&
+        event.clientY >= area.top &&
+        event.clientY <= area.bottom
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    true,
+  );
 const heldPointers = new Set<number>();
 let classroomPanelCleanup: (() => void) | undefined;
 let classroomSync: ReturnType<typeof createClassroomSync> | null = null;
@@ -760,9 +785,17 @@ function render() {
       }
       const b = button(
         "",
-        () => {
-          if (tile.kind === "category") openCategory(tile.subBoardId);
-          else speak(tile);
+        (event) => {
+          if (tile.kind === "category") {
+            categoryTap = {
+              boardId: tile.subBoardId,
+              // A keyboard/switch open is not a first tap. It also clears any
+              // guard left by a recent pointer open of this same category.
+              time: event.detail > 0 ? event.timeStamp : -Infinity,
+              area: b.getBoundingClientRect(),
+            };
+            openCategory(tile.subBoardId);
+          } else speak(tile);
         },
         `tile ${tile.tone}${tile.kind === "category" ? " category-tile" : ""}`,
       );

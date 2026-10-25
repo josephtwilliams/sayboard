@@ -163,6 +163,237 @@ try {
       }
     }
   }
+  // An accidental double tap opens the category but does not also speak the
+  // word that appears under the finger.
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.addInitScript(() => {
+    const word = (id, label) => ({
+      kind: "word",
+      id,
+      label,
+      phrase: label,
+      icon: "emoji:1f4a7",
+      tone: "blue",
+    });
+    localStorage.setItem(
+      "sayboard-v2",
+      JSON.stringify({
+        version: 2,
+        tiles: [
+          { ...word("drink", "Drink"), kind: "category", subBoardId: "drinks" },
+          word("yes", "Yes"),
+        ],
+        voice: "",
+        rate: 1,
+        size: "small",
+        subBoards: [
+          { id: "drinks", size: "small", tiles: [word("water", "Water")] },
+        ],
+      }),
+    );
+    window.__spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    speechSynthesis.getVoices = () => [
+      {
+        name: "Synthetic local voice",
+        voiceURI: "synthetic-local",
+        localService: true,
+        lang: "en-AU",
+      },
+    ];
+    speechSynthesis.speak = (utterance) => {
+      window.__spoken.push(utterance.text);
+      utterance.onstart?.();
+      utterance.onend?.();
+    };
+    speechSynthesis.cancel = () => {};
+  });
+  await page.goto(origin);
+  const box = await page
+    .getByRole("button", { name: "Open Drink category", exact: true })
+    .boundingBox();
+  const tap = () =>
+    page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await tap();
+  await page.waitForTimeout(120);
+  await tap();
+  await page.waitForTimeout(100);
+  assert.ok(
+    await page
+      .getByRole("button", { name: "Say Water", exact: true })
+      .isVisible(),
+  );
+  assert.deepEqual(
+    await page.evaluate(() => window.__spoken),
+    [],
+    "Double tap on a category does not speak the replacing word",
+  );
+  await page.waitForTimeout(500);
+  await tap();
+  assert.deepEqual(await page.evaluate(() => window.__spoken), ["Water"]);
+  // Keyboard and switch opens are not the first half of a double tap. The
+  // first real pointer selection must work immediately, even after reopening
+  // a category that was just opened with a pointer.
+  for (const activation of ["Enter", "Space", "switch"]) {
+    await page
+      .getByRole("button", { name: "Back / Home", exact: true })
+      .click();
+    const category = page.getByRole("button", {
+      name: "Open Drink category",
+      exact: true,
+    });
+    await category.click();
+    await page
+      .getByRole("button", { name: "Back / Home", exact: true })
+      .click();
+    await category.evaluate((node) => {
+      window.__spoken = [];
+      node.addEventListener(
+        "click",
+        (event) => {
+          window.__categoryOpen = {
+            time: event.timeStamp,
+            detail: event.detail,
+          };
+        },
+        { once: true },
+      );
+    });
+    if (activation === "switch")
+      await category.evaluate((node) => node.click());
+    else await category.press(activation);
+    await page
+      .getByRole("button", { name: "Say Water", exact: true })
+      .evaluate((node) => {
+        node.addEventListener(
+          "click",
+          (event) => {
+            window.__wordTap = { time: event.timeStamp, detail: event.detail };
+          },
+          { capture: true, once: true },
+        );
+      });
+    await tap();
+    const events = await page.evaluate(() => ({
+      open: window.__categoryOpen,
+      tap: window.__wordTap,
+      spoken: window.__spoken,
+    }));
+    assert.equal(events.open.detail, 0, `${activation} is a non-pointer open`);
+    assert.deepEqual(
+      events.spoken,
+      ["Water"],
+      `${activation} allows the next pointer tap`,
+    );
+    assert.ok(events.tap.detail > 0, "The selection is pointer-originated");
+    assert.ok(
+      events.tap.time - events.open.time < 400,
+      "The pointer tap is inside the guard window",
+    );
+  }
+  await page.close();
+  // Below a short category, Type and Speak can move under the finger instead.
+  const typed = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  await typed.addInitScript(() => {
+    const word = (id, label) => ({
+      kind: "word",
+      id,
+      label,
+      phrase: label,
+      icon: "emoji:1f4a7",
+      tone: "blue",
+    });
+    localStorage.setItem(
+      "sayboard-v2",
+      JSON.stringify({
+        version: 2,
+        tiles: [
+          word("yes", "Yes"),
+          word("no", "No"),
+          word("more", "More"),
+          { ...word("drink", "Drink"), kind: "category", subBoardId: "drinks" },
+        ],
+        voice: "",
+        rate: 1,
+        size: "small",
+        subBoards: [
+          { id: "drinks", size: "small", tiles: [word("water", "Water")] },
+        ],
+      }),
+    );
+    window.__spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    speechSynthesis.getVoices = () => [
+      {
+        name: "Synthetic local voice",
+        voiceURI: "synthetic-local",
+        localService: true,
+        lang: "en-AU",
+      },
+    ];
+    speechSynthesis.speak = (utterance) => {
+      window.__spoken.push(utterance.text);
+      utterance.onstart?.();
+      utterance.onend?.();
+    };
+    speechSynthesis.cancel = () => {};
+  });
+  await typed.goto(origin);
+  await typed.locator(".type-and-speak input").fill("Hello there");
+  const drink = typed.getByRole("button", {
+    name: "Open Drink category",
+    exact: true,
+  });
+  const tile = await drink.boundingBox();
+  await drink.click();
+  const speakButton = typed.locator(".type-and-speak button.primary");
+  const speakBox = await speakButton.boundingBox();
+  const overlap = {
+    left: Math.max(tile.x, speakBox.x),
+    right: Math.min(tile.x + tile.width, speakBox.x + speakBox.width),
+    top: Math.max(tile.y, speakBox.y),
+    bottom: Math.min(tile.y + tile.height, speakBox.y + speakBox.height),
+  };
+  assert.ok(
+    overlap.left < overlap.right && overlap.top < overlap.bottom,
+    "Speak occupies part of the category tile's place",
+  );
+  const point = {
+    x: (overlap.left + overlap.right) / 2,
+    y: (overlap.top + overlap.bottom) / 2,
+  };
+  await typed.getByRole("button", { name: "Back / Home", exact: true }).click();
+  await typed.waitForTimeout(500);
+  await typed.mouse.click(point.x, point.y);
+  await typed.waitForTimeout(120);
+  await typed.mouse.click(point.x, point.y);
+  await typed.waitForTimeout(100);
+  assert.deepEqual(
+    await typed.evaluate(() => window.__spoken),
+    [],
+    "Double tap on a category does not speak typed text",
+  );
+  assert.equal(
+    await speakButton.evaluate((node) => node === document.activeElement),
+    false,
+    "Double tap on a category does not focus what replaced it",
+  );
+  await typed.waitForTimeout(500);
+  await speakButton.click();
+  assert.deepEqual(await typed.evaluate(() => window.__spoken), [
+    "Hello there",
+  ]);
+  await typed.close();
   console.log(JSON.stringify({ scenarios: results.length, results }, null, 2));
 } finally {
   await browser.close();

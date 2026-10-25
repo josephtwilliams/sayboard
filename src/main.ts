@@ -537,7 +537,7 @@ function render() {
         )
           .find((node) => node.dataset.arrangeTileId === categoryTileId)
           ?.focus();
-      } else if (draft) {
+      } else if (draft && !teacherPreviewing) {
         Array.from(
           document.querySelectorAll<HTMLButtonElement>("[data-category-id]"),
         )
@@ -762,7 +762,7 @@ function render() {
         emptyCaregiver,
       );
       shell.append(empty, typeAndSpeak());
-      root.append(teacherEditing ? wrapTeacherBoard(shell) : shell);
+      root.append(teacherEditing ? wrapTeacherBoard(shell, navigation) : shell);
       fullscreen.refresh();
       return;
     }
@@ -811,7 +811,7 @@ function render() {
     viewport.append(grid);
     shell.append(viewport, typeAndSpeak());
   }
-  root.append(teacherEditing ? wrapTeacherBoard(shell) : shell);
+  root.append(teacherEditing ? wrapTeacherBoard(shell, navigation) : shell);
   fullscreen.refresh();
   if (teacherSaving)
     root
@@ -884,7 +884,10 @@ async function publishTeacherDraft() {
     window.scrollTo({ top: scrollPosition, behavior: "instant" });
   }
 }
-function wrapTeacherBoard(shell: HTMLElement): HTMLElement {
+function wrapTeacherBoard(
+  shell: HTMLElement,
+  categoryNavigation: HTMLElement,
+): HTMLElement {
   if (!teacherEditing || !teacherClassroom) return shell;
   shell.querySelector(":scope > .subtitle")?.remove();
   const editorNotice = shell.querySelector<HTMLElement>(
@@ -897,6 +900,13 @@ function wrapTeacherBoard(shell: HTMLElement): HTMLElement {
   const oldHeader = shell.querySelector(".header");
   const done = oldHeader?.querySelector<HTMLButtonElement>(".caregiver-access");
   oldHeader?.remove();
+  const home = categoryNavigation.querySelector("button");
+  if (home) {
+    home.textContent = "Home board";
+    home.setAttribute("aria-label", "Home board");
+    home.title = "Home board";
+  }
+  shell.prepend(categoryNavigation);
   const feedback = el("p", "teacher-board-feedback");
   feedback.role = "status";
   feedback.setAttribute("aria-live", "polite");

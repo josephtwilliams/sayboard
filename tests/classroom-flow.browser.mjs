@@ -384,6 +384,24 @@ export async function checkClassroomFlow({
       await page
         .getByRole("heading", { name: "Demo learner", exact: true })
         .waitFor();
+      if (previous === "Example hello") {
+        await page
+          .getByRole("navigation", { name: "Teacher navigation", exact: true })
+          .getByRole("button", { name: "Sign out", exact: true })
+          .waitFor();
+        await page
+          .getByRole("button", { name: "Open Drink category", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Edit Water", exact: true })
+          .waitFor();
+        await page
+          .getByRole("button", { name: "Home board", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Edit " + previous, exact: true })
+          .waitFor();
+      }
       await page
         .getByRole("button", { name: "Edit " + previous, exact: true })
         .click();
@@ -495,6 +513,22 @@ export async function checkClassroomFlow({
         .getByRole("button", { name: "Caregiver controls", exact: true })
         .count(),
       0,
+    );
+    await page
+      .getByRole("button", { name: "Open Drink category", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Say Water", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Home board", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Say Published one", exact: true })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Home board", exact: true })
+        .isDisabled(),
+      true,
     );
     await page
       .getByRole("button", { name: "Open Drink category", exact: true })

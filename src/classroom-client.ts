@@ -118,10 +118,26 @@ export const teacherClient = {
     );
   },
   async save(id: string, revision: number, board: Board) {
-    return parsedResult(
-      await request(profilePath(id), "PUT", { revision, board }),
-      parseProfileDetail,
-    );
+    const send = () => request(profilePath(id), "PUT", { revision, board });
+    let value: unknown;
+    try {
+      value = await send();
+    } catch (error) {
+      if (
+        !(error instanceof ClassroomError) ||
+        ![401, 403].includes(error.status)
+      )
+        throw error;
+      // Signing in again from another tab rotates the CSRF token, and sessions
+      // expire. Refresh once so the open draft can be saved without reloading.
+      if (!(await accountClient.restoreSession()))
+        throw new ClassroomError(
+          401,
+          "Your sign-in changed. Sign in on the teacher dashboard in another tab, then save this draft again.",
+        );
+      value = await send();
+    }
+    return parsedResult(value, parseProfileDetail);
   },
   async publish(id: string, revision: number) {
     return parsedResult(

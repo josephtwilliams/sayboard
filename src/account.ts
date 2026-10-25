@@ -133,6 +133,15 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
       "X-CSRF-Token": session.csrfToken,
     };
   }
+  async function readSession() {
+    try {
+      session = parseSession(await request("/api/auth/session"));
+    } catch (error) {
+      session = null;
+      if (!(error instanceof AccountError && error.status === 401)) throw error;
+    }
+    return session;
+  }
   return {
     currentSession: () => session,
     currentAvailability: () => availability,
@@ -172,16 +181,7 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
       }
     },
     async restoreSession() {
-      return operation(async () => {
-        try {
-          session = parseSession(await request("/api/auth/session"));
-        } catch (error) {
-          session = null;
-          if (!(error instanceof AccountError && error.status === 401))
-            throw error;
-        }
-        return session;
-      });
+      return operation(readSession);
     },
     /** Checks the session once per page load, sharing any check in flight. */
     async checkSession() {
@@ -207,10 +207,40 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
     },
     async logout() {
       return operation(async () => {
-        await request("/api/auth/logout", {
-          method: "POST",
-          headers: mutationHeaders(),
-        });
+        const signOut = () =>
+          request("/api/auth/logout", {
+            method: "POST",
+            headers: mutationHeaders(),
+          });
+        const previous = session;
+        try {
+          await signOut();
+        } catch (error) {
+          if (!(error instanceof AccountError && error.status === 403))
+            throw error;
+          // Signing in from another tab rotates the CSRF token. Refresh it and
+          // retry once so the server session ends, not only this page's copy.
+          let retrySession = previous;
+          try {
+            const refreshed = await readSession();
+            if (refreshed) {
+              retrySession = refreshed;
+              await signOut();
+            }
+          } catch (retryError) {
+            // A 401 is authoritative: request already cleared the expired
+            // session. Never resurrect an identity after the retry rejects it.
+            if (retryError instanceof AccountError && retryError.status === 401)
+              throw retryError;
+            // A second 403 may leave the server session alive. Preserve the
+            // latest token, not the stale pre-refresh identity, for manual retry.
+            session ??= retrySession;
+            throw new AccountError(
+              retryError instanceof AccountError ? retryError.status : 0,
+              "Sign out did not finish, so this browser may still be signed in. Try signing out again.",
+            );
+          }
+        }
         session = null;
       });
     },

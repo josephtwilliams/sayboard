@@ -281,3 +281,38 @@
     min-height: 72px;
   }
 }
+.workspace-short-label {
+  display: none;
+}
+.workspace-title-row h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-breadcrumbs {
+  overflow-wrap: anywhere;
+}
+.workspace-breadcrumbs a {
+  max-width: 100%;
+}
+@media (max-width: 760px) {
+  .workspace-header .brand span,
+  .workspace-wide-label {
+    display: none;
+  }
+  .workspace-short-label {
+    display: inline;
+  }
+  .workspace-sidebar.workspace-has-classroom > a {
+    display: none;
+  }
+  .workspace-mobile-profile {
+    flex-direction: row;
+  }
+  .workspace-title-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .workspace-title-row > .button {
+    min-width: 120px;
+  }
+}

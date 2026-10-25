@@ -38,9 +38,16 @@ export function createTeacherWorkspace({
   const header = el("header", "workspace-header");
   const brand = link("", "/teacher", "brand");
   brand.append(renderSymbol("message-circle"), el("span", "", "sayboard"));
+  brand.setAttribute("aria-label", "Sayboard teacher workspace");
   const destinations = el("nav", "workspace-global");
   destinations.setAttribute("aria-label", "Teacher navigation");
-  destinations.append(link("Open communication board", "/", "button quiet"));
+  const openBoard = link("", "/", "button quiet");
+  openBoard.setAttribute("aria-label", "Open communication board");
+  openBoard.append(
+    el("span", "workspace-wide-label", "Open communication board"),
+    el("span", "workspace-short-label", "Open board"),
+  );
+  destinations.append(openBoard);
   const oldHeader = content.querySelector(".teacher-header");
   const signOut = Array.from(oldHeader?.querySelectorAll("button") ?? []).find(
     (node) => node.textContent === "Sign out",
@@ -56,6 +63,7 @@ export function createTeacherWorkspace({
   if (!room) classrooms.setAttribute("aria-current", "page");
   sidebar.append(classrooms);
   if (room) {
+    sidebar.classList.add("workspace-has-classroom");
     const classroom = link(
       room.name,
       teacherHref({ kind: "classroom", classroomId: room.id }),

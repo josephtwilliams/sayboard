@@ -53,6 +53,8 @@ jobs:
       - run: node tests/settings-editor.browser.mjs
       - run: node tests/settings-section-navigation.browser.mjs
       - run: node tests/editor-navigation.browser.mjs
+      - run: node tests/caregiver-session.browser.mjs
+      - run: node tests/caregiver-contexts.browser.mjs
       - run: node tests/quick-add.browser.mjs
       - run: node tests/symbol-picker.browser.mjs
       - run: node tests/settings-phone-layout.browser.mjs

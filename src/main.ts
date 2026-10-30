@@ -1,6 +1,11 @@
 import { createTeacherWorkspace } from "./teacher-workspace";
 import { createElement as el, createButton as button } from "./dom";
-import { createBoardArranger, type ArrangementSession } from "./board-arranger";
+import { createBoardArranger } from "./board-arranger";
+import {
+  createCaregiverSessions,
+  type PersistOutcome,
+  type PersistRequest,
+} from "./caregiver-session";
 import "./board-arranger.css";
 import { renderSymbol } from "./symbols";
 import { createTypeAndSpeak } from "./type-and-speak";
@@ -32,13 +37,11 @@ import {
   saveStoredBoard,
   serializeBoard,
 } from "./board-storage";
-import { hasBoardChanges } from "./editor-state";
 import { columnsKey } from "./device-layout";
 import {
   deviceLayoutKey,
   resolveDeviceLayout,
   isCompactPhoneLayout,
-  hasDeviceLayoutChanges,
 } from "./compact-layout";
 import { createDeviceLayoutControls } from "./compact-controls";
 import { createFullscreen } from "./fullscreen";
@@ -88,7 +91,6 @@ let board = starterBoard();
 let storageError = "";
 let storageBlocked = false;
 let hasStoredBoard = false;
-let replacementAuthorizedDraft: Board | null = null;
 try {
   const loaded: ReturnType<typeof loadStoredBoard> = teacherDemo
     ? {
@@ -110,10 +112,7 @@ try {
   storageBlocked = true;
 }
 let activeBoardId: string | null = null;
-let draft: Board | null = null;
 let caregiverUnlocked = false;
-const expandedSettings = new Set<string>();
-let arrangement: ArrangementSession | null = null;
 let deviceLayout = resolveDeviceLayout(
   null,
   null,
@@ -132,7 +131,10 @@ try {
 } catch {
   // Restricted storage keeps this layout stable for the current session.
 }
-let draftDeviceLayout = { ...deviceLayout };
+const caregiverSessions = createCaregiverSessions({
+  readSaved: () => ({ board, layout: deviceLayout, storageBlocked }),
+  persist: persistToCurrentResource,
+});
 let layoutSaveWarning = "";
 let voices: SpeechSynthesisVoice[] = [];
 let selected: string | null = null;
@@ -177,17 +179,8 @@ let watchdog: ReturnType<typeof setTimeout> | undefined;
 const tileButtons = new Map<string, HTMLButtonElement>();
 const supported =
   "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
-function hasUnsavedDraft(): boolean {
-  return (
-    (arrangement !== null && hasBoardChanges(board, arrangement.board)) ||
-    (draft !== null &&
-      (hasBoardChanges(board, draft) ||
-        hasDeviceLayoutChanges(deviceLayout, draftDeviceLayout) ||
-        (storageBlocked && replacementAuthorizedDraft === draft)))
-  );
-}
 window.addEventListener("beforeunload", (event) => {
-  if (hasUnsavedDraft()) event.preventDefault();
+  if (caregiverSessions.hasUnsavedDraft()) event.preventDefault();
 });
 async function confirmChange(message: string): Promise<boolean> {
   const dialog = el("dialog", "tile-dialog");
@@ -314,36 +307,39 @@ function speakText(phrase: string, id: string | null, settings: Board = board) {
     },
   });
 }
-function persist(next: Board) {
+function persistToCurrentResource({
+  board: next,
+  layout,
+  replacementAuthorized,
+}: PersistRequest): PersistOutcome {
   if (teacherDemo) {
     try {
       saveTeacherDemo(sessionStorage, next);
       board = next;
       storageError = "";
-      return true;
+      return { kind: "demo-saved" };
     } catch {
       storageError =
         "The example could not be kept in this tab. Export it before leaving.";
-      return false;
+      return { kind: "failed" };
     }
   }
   if (teacherBoardRequest) {
     storageError =
       "This classroom draft must be saved to the teacher workspace. Your device board is unchanged.";
-    return false;
+    return { kind: "failed" };
   }
-  if (storageBlocked && next !== replacementAuthorizedDraft) {
+  if (storageBlocked && !replacementAuthorized) {
     storageError =
       "The saved board is retained. Import a backup, load an account copy, or confirm Reset before saving a replacement.";
-    return false;
+    return { kind: "failed" };
   }
   try {
     saveStoredBoard(localStorage, next);
     board = next;
     storageError = "";
     storageBlocked = false;
-    replacementAuthorizedDraft = null;
-    deviceLayout = { ...draftDeviceLayout };
+    deviceLayout = { ...layout };
     layoutSaveWarning = "";
     try {
       localStorage.setItem(deviceLayoutKey, JSON.stringify(deviceLayout));
@@ -351,13 +347,13 @@ function persist(next: Board) {
       layoutSaveWarning =
         "Board saved on this device. Display preferences could not be saved and apply for this session only.";
     }
-    return true;
+    return { kind: "device-saved" };
   } catch (error) {
     storageError =
       error instanceof Error && error.message.includes("too large")
         ? error.message
         : "Could not save on this device. Storage may be full or blocked. Export your draft before leaving.";
-    return false;
+    return { kind: "failed" };
   }
 }
 function exportBoard(value: Board) {
@@ -411,8 +407,7 @@ function openCaregiverEntry() {
     button("Add word or phrase", () => {
       caregiverUnlocked = true;
       stop();
-      draft = structuredClone(board);
-      draftDeviceLayout = { ...deviceLayout };
+      const draft = caregiverSessions.beginEditor("quick");
       dialog.close();
       render();
       editTile(draft, null, true);
@@ -420,12 +415,7 @@ function openCaregiverEntry() {
     button("Arrange board", () => {
       caregiverUnlocked = true;
       stop();
-      arrangement = {
-        board: structuredClone(board),
-        selectedId: null,
-        message: "",
-      };
-      draftDeviceLayout = { ...deviceLayout };
+      caregiverSessions.beginArrangement();
       dialog.close();
       render();
       document.querySelector<HTMLButtonElement>(".arrange-save")?.focus();
@@ -434,10 +424,8 @@ function openCaregiverEntry() {
       "Edit board and settings",
       () => {
         caregiverUnlocked = true;
-        expandedSettings.clear();
         stop();
-        draft = structuredClone(board);
-        draftDeviceLayout = { ...deviceLayout };
+        caregiverSessions.beginEditor("settings");
         dialog.close();
         render();
         document
@@ -471,8 +459,7 @@ function openQuickAdd() {
       return;
     }
     stop();
-    draft = structuredClone(board);
-    draftDeviceLayout = { ...deviceLayout };
+    const draft = caregiverSessions.beginEditor("quick");
     editTile(draft, null, true, "word", restorePosition);
   };
   if (caregiverUnlocked) {
@@ -512,7 +499,7 @@ function render() {
   classroomPanelCleanup = undefined;
   root.replaceChildren();
   tileButtons.clear();
-  const showing = arrangement?.board ?? draft ?? board;
+  const { board: showing, draft, arrangement } = caregiverSessions.view();
   if (
     activeBoardId !== null &&
     !showing.subBoards.some((page) => page.id === activeBoardId)
@@ -527,7 +514,7 @@ function render() {
       activeBoardId = null;
       render();
       if (categoryTileId === null) return;
-      if (arrangement) {
+      if (caregiverSessions.view().arrangement) {
         Array.from(
           document.querySelectorAll<HTMLButtonElement>(
             "[data-arrange-tile-id]",
@@ -535,7 +522,7 @@ function render() {
         )
           .find((node) => node.dataset.arrangeTileId === categoryTileId)
           ?.focus();
-      } else if (draft && !teacherPreviewing) {
+      } else if (caregiverSessions.view().draft && !teacherPreviewing) {
         Array.from(
           document.querySelectorAll<HTMLButtonElement>("[data-category-id]"),
         )
@@ -558,24 +545,23 @@ function render() {
     async () => {
       if (teacherEditing) {
         if (
-          hasUnsavedDraft() &&
+          caregiverSessions.hasUnsavedDraft() &&
           !(await confirmChange("Discard unsaved classroom draft changes?"))
         )
           return;
         stop();
-        draft = null;
+        caregiverSessions.closeEditor();
         location.assign(teacherDashboard());
         return;
       }
-      if (draft) {
+      if (caregiverSessions.view().draft) {
         if (
-          hasUnsavedDraft() &&
+          caregiverSessions.hasUnsavedDraft() &&
           !(await confirmChange("Discard unsaved caregiver changes?"))
         )
           return;
         stop();
-        draft = null;
-        replacementAuthorizedDraft = null;
+        caregiverSessions.discardEditor();
         render();
         (
           document.querySelector<HTMLButtonElement>(".tile") ??
@@ -647,11 +633,13 @@ function render() {
           ? "Save changes and continue to teacher workspace"
           : "Save to teacher workspace",
         async () => {
-          if (arrangement) {
+          if (caregiverSessions.view().arrangement) {
             status("Save or cancel the arrangement before continuing.", true);
             return;
           }
-          if (persist(draft ?? board)) {
+          if (
+            caregiverSessions.persist(caregiverSessions.view().draft ?? board)
+          ) {
             try {
               sessionStorage.setItem(teacherDemoPendingKey, "1");
             } catch {
@@ -684,19 +672,18 @@ function render() {
         size: deviceLayout.size ?? page.size,
         onOpen: openCategory,
         onSave: () => {
-          if (!persist(session.board)) return storageError;
-          arrangement = null;
+          if (!caregiverSessions.saveArrangement(session)) return storageError;
           render();
           document.querySelector<HTMLButtonElement>(".tile")?.focus();
           return null;
         },
         onCancel: async () => {
           if (
-            hasUnsavedDraft() &&
+            caregiverSessions.hasUnsavedDraft() &&
             !(await confirmChange("Discard unsaved arrangement changes?"))
           )
             return;
-          arrangement = null;
+          caregiverSessions.cancelArrangement();
           render();
           document.querySelector<HTMLButtonElement>(".tile")?.focus();
         },
@@ -807,7 +794,7 @@ async function saveTeacherDraft(working: Board) {
     );
     teacherEditing = saved;
     board = structuredClone(saved.board);
-    draft = structuredClone(saved.board);
+    caregiverSessions.resumeEditor();
     teacherNotice = "Classroom draft saved. Publish when you are ready.";
     teacherNoticeError = false;
   } catch (error) {
@@ -826,7 +813,8 @@ async function saveTeacherDraft(working: Board) {
   }
 }
 async function publishTeacherDraft() {
-  if (!teacherEditing || teacherSaving || hasUnsavedDraft()) return;
+  if (!teacherEditing || teacherSaving || caregiverSessions.hasUnsavedDraft())
+    return;
   if (
     !(await confirmChange(
       `Publish the saved draft for ${teacherEditing.label}? Linked devices update when communication is idle.`,
@@ -892,7 +880,7 @@ function wrapTeacherBoard(
   preview.setAttribute("aria-pressed", String(teacherPreviewing));
   const save = button(
     "Save draft",
-    () => void saveTeacherDraft(draft ?? board),
+    () => void saveTeacherDraft(caregiverSessions.view().draft ?? board),
     "button workspace-save",
   );
   const publish = button(
@@ -901,7 +889,7 @@ function wrapTeacherBoard(
     "button primary workspace-publish",
   );
   function updateActions() {
-    const dirty = hasUnsavedDraft();
+    const dirty = caregiverSessions.hasUnsavedDraft();
     feedback.textContent = teacherSaving
       ? "Saving classroom changes…"
       : teacherNoticeError
@@ -932,7 +920,7 @@ function wrapTeacherBoard(
     () =>
       void (async () => {
         if (
-          hasUnsavedDraft() &&
+          caregiverSessions.hasUnsavedDraft() &&
           !(await confirmChange(
             "Discard unsaved classroom changes and sign out?",
           ))
@@ -941,7 +929,7 @@ function wrapTeacherBoard(
         try {
           await accountClient.logout();
           stop();
-          draft = null;
+          caregiverSessions.closeEditor();
           location.assign("/teacher");
         } catch (error) {
           teacherNoticeError = true;
@@ -995,7 +983,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
   saveState.role = "status";
   saveState.setAttribute("aria-live", "polite");
   const updateSaveState = () => {
-    saveState.textContent = hasUnsavedDraft()
+    saveState.textContent = caregiverSessions.hasUnsavedDraft()
       ? teacherEditing
         ? "Unsaved classroom draft changes"
         : teacherDemo
@@ -1026,9 +1014,8 @@ function renderEditor(shell: HTMLElement, working: Board) {
         await saveTeacherDraft(working);
         return;
       }
-      if (persist(working)) {
+      if (caregiverSessions.saveEditor(working)) {
         stop();
-        draft = null;
         render();
         document.querySelector<HTMLButtonElement>(".caregiver-access")?.focus();
         status(
@@ -1077,8 +1064,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
         )
       ) {
         stop();
-        draft = next;
-        replacementAuthorizedDraft = next;
+        caregiverSessions.replaceDraft(next);
         activeBoardId = null;
         render();
         focusEditorAction("Import board");
@@ -1145,9 +1131,9 @@ function renderEditor(shell: HTMLElement, working: Board) {
   if (!teacherEditing)
     display.append(
       createDeviceLayoutControls({
-        layout: draftDeviceLayout,
+        layout: caregiverSessions.view().layout,
         onChange: (next) => {
-          draftDeviceLayout = next;
+          caregiverSessions.setLayout(next);
           updateSaveState();
         },
       }),
@@ -1234,8 +1220,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
         confirm: confirmChange,
         applyBoard: (next: Board) => {
           stop();
-          draft = next;
-          replacementAuthorizedDraft = next;
+          caregiverSessions.replaceDraft(next);
           activeBoardId = null;
           render();
           status(
@@ -1430,11 +1415,10 @@ function renderEditor(shell: HTMLElement, working: Board) {
     .querySelectorAll<HTMLDetailsElement>(".settings-group")
     .forEach((group) => {
       const name = group.querySelector("summary")?.textContent ?? "";
-      group.open = expandedSettings.has(name);
+      group.open = caregiverSessions.isExpanded(name);
       group.addEventListener("toggle", () => {
         if (!group.isConnected) return;
-        if (group.open) expandedSettings.add(name);
-        else expandedSettings.delete(name);
+        caregiverSessions.setExpanded(name, group.open);
       });
     });
   const safety = el("section", "safety");
@@ -1463,8 +1447,7 @@ function renderEditor(shell: HTMLElement, working: Board) {
           )
         ) {
           stop();
-          draft = starterBoard();
-          replacementAuthorizedDraft = draft;
+          caregiverSessions.replaceDraft(starterBoard());
           activeBoardId = null;
           render();
           document.querySelector<HTMLButtonElement>(".safety button")?.focus();
@@ -1629,7 +1612,10 @@ function editTile(
       tone.value,
     ]);
   let original = originalValues();
-  let applied = false;
+  const tileEdit = caregiverSessions.beginTileEdit({
+    board: working,
+    mode: quick ? "quick" : "draft",
+  });
   const discard = el("div", "notice discard-edit");
   discard.hidden = true;
   const keepEditing = button("Keep editing", () => {
@@ -1709,17 +1695,12 @@ function editTile(
         tiles: [null],
         size: page.size,
       });
-    // A failed device save still keeps the applied tile in the caregiver draft.
-    applied = true;
-    if (quick) {
-      if (!persist(working)) {
-        render();
-        dialogError.textContent = `${storageError} Your word is kept in the caregiver draft.`;
-        original = originalValues();
-        save.textContent = "Retry save";
-        return;
-      }
-      draft = null;
+    if (!tileEdit.apply()) {
+      render();
+      dialogError.textContent = `${storageError} Your word is kept in the caregiver draft.`;
+      original = originalValues();
+      save.textContent = "Retry save";
+      return;
     }
     dialog.close();
     render();
@@ -1748,8 +1729,7 @@ function editTile(
   showDismissibleModal(dialog, {
     onDismiss: requestDismiss,
     onClosed: () => {
-      if (quick && !applied) {
-        draft = null;
+      if (tileEdit.close()) {
         render();
         document.querySelector<HTMLButtonElement>(".caregiver-access")?.focus();
         quickReturn?.();
@@ -1761,6 +1741,7 @@ function editTile(
 if (supported) {
   const refresh = () => {
     voices = window.speechSynthesis.getVoices();
+    const { draft } = caregiverSessions.view();
     if (draft) {
       const select = document.querySelector<HTMLSelectElement>("#voice");
       if (select) {
@@ -1806,7 +1787,7 @@ if (teacherBoardRequest) {
       )
         throw new Error("Open this learner from their classroom workspace.");
       teacherPreviewing = teacherParameters.get("preview") === "1";
-      draft = structuredClone(board);
+      caregiverSessions.resumeEditor();
       storageError = "";
       storageBlocked = false;
       activeBoardId = null;
@@ -1839,15 +1820,19 @@ if (teacherBoardRequest) {
     serverHint: document.cookie
       .split(";")
       .some((value) => value.trim() === "sayboard_classroom=1"),
-    canApply: () =>
-      !storageBlocked &&
-      draft === null &&
-      arrangement === null &&
-      selected === null &&
-      !typedMessagePending &&
-      heldPointers.size === 0 &&
-      Date.now() - lastInteraction >= 2000 &&
-      !document.querySelector("dialog[open]"),
+    canApply: () => {
+      const { draft, arrangement } = caregiverSessions.view();
+      return (
+        !storageBlocked &&
+        draft === null &&
+        arrangement === null &&
+        selected === null &&
+        !typedMessagePending &&
+        heldPointers.size === 0 &&
+        Date.now() - lastInteraction >= 2000 &&
+        !document.querySelector("dialog[open]")
+      );
+    },
     apply: (publication) => {
       if (!publication.board) return false;
       try {
@@ -1878,14 +1863,17 @@ if (teacherBoardRequest) {
     // The URL opens setup only. Pairing still requires the code and the
     // caregiver's explicit confirmation before any board can be transferred.
     caregiverUnlocked = true;
-    draft = structuredClone(board);
-    expandedSettings.add("Backup and transfer");
+    caregiverSessions.resumeEditor();
+    caregiverSessions.setExpanded("Backup and transfer", true);
     const clean = new URL(location.href);
     clean.searchParams.delete("linkClassroom");
     history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
   }
   render();
-  if (draft && teacherParameters.get("linkClassroom") === "1") {
+  if (
+    caregiverSessions.view().draft &&
+    teacherParameters.get("linkClassroom") === "1"
+  ) {
     const code = root.querySelector<HTMLInputElement>(
       ".account-panel input[autocomplete='off']",
     );

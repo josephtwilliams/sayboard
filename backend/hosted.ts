@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { emitBackendFailure } from "./backend-errors.js";
 import { hostedConfig } from "./config.js";
 import { createApi, requestRejection } from "./api.js";
 import { tokenHash } from "./password.js";
@@ -64,6 +65,7 @@ export function createHostedHandler(
         : await handlers.api(request, peer);
     } catch {
       if (pending === attempt) pending = undefined;
+      emitBackendFailure("hosted_handler_failed");
       return unavailable("storage_unavailable");
     }
   };

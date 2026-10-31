@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHostedCapabilitiesHandler } from "../capabilities.ts";
 import { createHostedHandler } from "../hosted.ts";
 
@@ -14,6 +14,9 @@ const configured = {
 };
 const request = () =>
   new Request("https://sayboard.example.test/api/auth/capabilities");
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("hosted account configuration discovery", () => {
   it.each([undefined, "", "0"])(
@@ -45,6 +48,7 @@ describe("hosted account configuration discovery", () => {
   });
 
   it("reports configuration independently from runtime storage failures", async () => {
+    const sink = vi.spyOn(console, "error").mockImplementation(() => {});
     const capabilities = createHostedCapabilitiesHandler(configured);
     const getStore = vi.fn(async () => {
       throw new Error("Synthetic storage outage");
@@ -67,6 +71,9 @@ describe("hosted account configuration discovery", () => {
     expect(await (await capabilities(request())).json()).toEqual({
       state: "enabled",
     });
+    expect(sink).toHaveBeenCalledExactlyOnceWith(
+      '{"event":"hosted_handler_failed"}',
+    );
   });
 
   it("accepts only read-only GET requests", async () => {

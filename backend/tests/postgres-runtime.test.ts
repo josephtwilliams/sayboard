@@ -1,4 +1,5 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { Console } from "node:console";
 const fake = vi.hoisted(() => {
   const pools: unknown[] = [];
   return {
@@ -31,11 +32,23 @@ const env = {
   DATABASE_URL:
     "postgresql://synthetic:unused@database.example.test/sayboard?sslmode=require",
 };
+let stderr = "";
 beforeEach(() => {
+  stderr = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+    return true;
+  });
+  vi.spyOn(console, "error").mockImplementation(
+    new Console(process.stdout, process.stderr).error,
+  );
   fake.pools.length = 0;
   fake.query.mockReset().mockResolvedValue({ rows: [{ version: 2 }] });
   fake.end.mockReset().mockResolvedValue();
   fake.on.mockReset();
+});
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 it("initializes one pool lazily, shares simultaneous requests", async () => {
   const getStore = productionStoreFactory(env);
@@ -66,10 +79,12 @@ it("closes failed initialization, hides driver details, and allows a later retry
   expect(fake.end).toHaveBeenCalledOnce();
   await getStore();
   expect(fake.pools).toHaveLength(2);
+  expect(stderr).toBe("");
 });
 it("fails before constructing a pool when configuration is absent", async () => {
   await expect(productionStoreFactory({})()).rejects.toThrow("not configured");
   expect(fake.pools).toHaveLength(0);
+  expect(stderr).toBe("");
 });
 it("fails closed and closes the pool for an unmigrated schema", async () => {
   fake.query.mockResolvedValueOnce({ rows: [{ version: 1 }] });
@@ -77,4 +92,46 @@ it("fails closed and closes the pool for an unmigrated schema", async () => {
     "schema not applied",
   );
   expect(fake.end).toHaveBeenCalledOnce();
+  expect(stderr).toBe("");
 });
+it.each([false, true])(
+  "reports idle pool failures without inspecting them or replacing the pool when the log sink throws: %s",
+  async (sinkThrows) => {
+    const getStore = productionStoreFactory(env);
+    const store = await getStore();
+    const sink = sinkThrows
+      ? vi.spyOn(console, "error").mockImplementation(() => {
+          throw new Error("synthetic broken log sink");
+        })
+      : undefined;
+    const failure = Object.defineProperties(new Error(), {
+      message: {
+        get() {
+          throw new Error("synthetic private message");
+        },
+      },
+      stack: {
+        get() {
+          throw new Error("synthetic private stack");
+        },
+      },
+      toString: {
+        value() {
+          throw new Error("synthetic private string");
+        },
+      },
+    });
+    const callback = fake.on.mock.calls[0][1];
+    expect(() => callback(failure)).not.toThrow();
+    if (sink)
+      expect(sink).toHaveBeenCalledExactlyOnceWith(
+        '{"event":"postgres_idle_pool_error"}',
+      );
+    expect(stderr).toBe(
+      sinkThrows ? "" : '{"event":"postgres_idle_pool_error"}\n',
+    );
+    expect(await getStore()).toBe(store);
+    expect(fake.pools).toHaveLength(1);
+    expect(fake.end).not.toHaveBeenCalled();
+  },
+);

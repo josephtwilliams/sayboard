@@ -564,6 +564,9 @@ export async function checkClassroomFlow({
       .boundingBox();
     const publishedURL = page.url();
     await publish();
+    await page
+      .getByRole("heading", { name: "Published version 1", exact: true })
+      .waitFor();
     assert.equal(
       page.url(),
       publishedURL,
@@ -583,9 +586,6 @@ export async function checkClassroomFlow({
         .allTextContents(),
       workspaceLinks,
     );
-    await page
-      .getByRole("heading", { name: "Published version 1", exact: true })
-      .waitFor();
     if (artifactDirectory) {
       await mkdir(artifactDirectory, { recursive: true });
       await page.screenshot({

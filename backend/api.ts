@@ -1,4 +1,5 @@
 import { body, HttpError, json, sessionToken } from "./api-http.js";
+import { emitBackendFailure } from "./backend-errors.js";
 import { deviceApi, teacherApi } from "./classroom-api.js";
 import { parseBoard } from "../src/board.js";
 import type { ApiConfig } from "./config.js";
@@ -378,6 +379,7 @@ export async function createApi(
     } catch (error) {
       if (error instanceof HttpError)
         return json(error.status, { error: error.code }, error.headers);
+      emitBackendFailure("account_request_failed");
       // Do not leak SQL, filesystem paths, submitted boards, passwords or tokens.
       return json(503, { error: "storage_unavailable" });
     }

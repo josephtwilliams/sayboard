@@ -1,5 +1,6 @@
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -10,6 +11,7 @@ import {
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { Console } from "node:console";
 import { createHostedHandler as rawHostedHandler } from "../hosted.ts";
 function createHostedHandler(...args: Parameters<typeof rawHostedHandler>) {
   const handler = rawHostedHandler(...args);
@@ -37,6 +39,7 @@ const other = randomUUID();
 let passwordHash: string;
 let clock = 1_900_000_000_000;
 let handler: ReturnType<typeof createHostedHandler>;
+let stderr = "";
 beforeAll(async () => {
   await db.exec(
     readFileSync(
@@ -53,6 +56,14 @@ beforeAll(async () => {
   passwordHash = await hashPassword(password);
 }, 20_000);
 beforeEach(async () => {
+  stderr = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+    return true;
+  });
+  vi.spyOn(console, "error").mockImplementation(
+    new Console(process.stdout, process.stderr).error,
+  );
   await db.exec(
     "TRUNCATE sayboard.accounts, sayboard.sessions, sayboard.boards, sayboard.login_limits CASCADE",
   );
@@ -70,6 +81,9 @@ beforeEach(async () => {
     async () => store,
     () => clock,
   );
+});
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 afterAll(async () => {
   await db.close();
@@ -152,18 +166,21 @@ describe("hosted HTTPS boundary", () => {
   });
   it("fails closed without configuration before touching storage", async () => {
     const getStore = vi.fn(async () => store);
-    const disabled = createHostedHandler({}, getStore);
-    for (const path of [
-      "/api/auth/login",
-      "/api/auth/session",
-      "/api/auth/logout",
-      "/api/board",
-    ]) {
-      const response = await disabled(request(path));
-      expect(response.status).toBe(503);
-      expect(response.headers.get("set-cookie")).toBeNull();
+    for (const config of [{}, { ...env(), SAYBOARD_AUTH_ENABLED: "0" }]) {
+      const disabled = createHostedHandler(config, getStore);
+      for (const path of [
+        "/api/auth/login",
+        "/api/auth/session",
+        "/api/auth/logout",
+        "/api/board",
+      ]) {
+        const response = await disabled(request(path));
+        expect(response.status).toBe(503);
+        expect(response.headers.get("set-cookie")).toBeNull();
+      }
     }
     expect(getStore).not.toHaveBeenCalled();
+    expect(stderr).toBe("");
   });
   it("rejects URL, Host, forwarded origin and cross-site mutations before storage", async () => {
     const getStore = vi.fn(async () => store);
@@ -196,6 +213,7 @@ describe("hosted HTTPS boundary", () => {
     cases.push(missing);
     for (const req of cases) expect((await guarded(req)).status).toBe(403);
     expect(getStore).not.toHaveBeenCalled();
+    expect(stderr).toBe("");
   });
   it("requires an adapter-validated client IP and ignores untrusted forwarded IPs", async () => {
     const getStore = vi.fn(async () => store);
@@ -410,29 +428,114 @@ describe("hosted HTTPS boundary", () => {
       ).status,
     ).toBe(401);
   });
-  it("shares initialization, retries failures, sanitizes errors and stops on configuration changes", async () => {
-    let attempt = 0;
-    const getStore = vi.fn(() => {
-      if (++attempt === 1) throw new Error("secret connection string");
-      return Promise.resolve(store);
-    });
-    const mutable = env();
-    const api = createHostedHandler(mutable, getStore);
-    const first = await api(request());
-    expect(first.status).toBe(503);
-    expect(await first.text()).not.toContain("secret");
-    const responses = await Promise.all([api(request()), api(request())]);
-    expect(responses.map((r) => r.status)).toEqual([401, 401]);
-    expect(getStore).toHaveBeenCalledTimes(2);
-    mutable.SAYBOARD_ORIGIN = "https://other.example.test";
-    expect(
-      (
-        await api(
-          new Request(mutable.SAYBOARD_ORIGIN + "/api/auth/session", {
-            headers: { "x-forwarded-for": "203.0.113.10" },
-          }),
-        )
-      ).status,
-    ).toBe(503);
+  it("keeps unauthenticated, validation and expected unavailable responses silent", async () => {
+    for (const [req, status, error] of [
+      [request(), 401, "unauthenticated"],
+      [
+        request("/api/auth/session?secret=synthetic"),
+        400,
+        "query_not_supported",
+      ],
+      [request("/api/auth/login", "POST", {}), 400, "invalid_credentials"],
+      [
+        request("/api/auth/activation", "POST", {}),
+        503,
+        "onboarding_unavailable",
+      ],
+      [
+        new Request(origin + "/api/auth/login", {
+          method: "POST",
+          headers: { origin, "content-type": "application/json" },
+          body: "{synthetic-invalid-json",
+        }),
+        400,
+        "invalid_json",
+      ],
+    ] satisfies [Request, number, string][]) {
+      const response = await handler(req);
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ error });
+    }
+    expect(stderr).toBe("");
   });
+  it.each([false, true])(
+    "consumes request failures once and recovers when the log sink throws: %s",
+    async (sinkThrows) => {
+      const user = await login();
+      const failure = {
+        toString() {
+          throw new Error("synthetic exception must not be inspected");
+        },
+      };
+      vi.spyOn(store, "board").mockRejectedValueOnce(failure);
+      const sink = sinkThrows
+        ? vi.spyOn(console, "error").mockImplementation(() => {
+            throw new Error("synthetic broken log sink");
+          })
+        : undefined;
+      const response = await handler(
+        request("/api/board", "GET", undefined, { cookie: user.cookie }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "storage_unavailable" });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("set-cookie")).toBeNull();
+      if (sink)
+        expect(sink).toHaveBeenCalledExactlyOnceWith(
+          '{"event":"account_request_failed"}',
+        );
+      const retried = await handler(
+        request("/api/board", "GET", undefined, { cookie: user.cookie }),
+      );
+      expect(retried.status).toBe(200);
+      expect(await retried.json()).toEqual({ board: null, revision: 0 });
+      expect(stderr).toBe(
+        sinkThrows ? "" : '{"event":"account_request_failed"}\n',
+      );
+    },
+  );
+  it.each([false, true])(
+    "shares initialization, retries failures, sanitizes errors and stops on configuration changes when the log sink throws: %s",
+    async (sinkThrows) => {
+      let attempt = 0;
+      const getStore = vi.fn(() => {
+        if (++attempt === 1) throw new Error("secret connection string");
+        return Promise.resolve(store);
+      });
+      const mutable = env();
+      const api = createHostedHandler(mutable, getStore);
+      const sink = sinkThrows
+        ? vi.spyOn(console, "error").mockImplementation(() => {
+            throw new Error("synthetic broken log sink");
+          })
+        : undefined;
+      const first = await api(request());
+      expect(first.status).toBe(503);
+      expect(await first.json()).toEqual({ error: "storage_unavailable" });
+      expect(first.headers.get("cache-control")).toBe("no-store");
+      expect(first.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(first.headers.get("set-cookie")).toBeNull();
+      const responses = await Promise.all([api(request()), api(request())]);
+      expect(responses.map((r) => r.status)).toEqual([401, 401]);
+      expect(getStore).toHaveBeenCalledTimes(2);
+      mutable.SAYBOARD_ORIGIN = "https://other.example.test";
+      expect(
+        (
+          await api(
+            new Request(mutable.SAYBOARD_ORIGIN + "/api/auth/session", {
+              headers: { "x-forwarded-for": "203.0.113.10" },
+            }),
+          )
+        ).status,
+      ).toBe(503);
+      if (sink)
+        expect(sink).toHaveBeenCalledExactlyOnceWith(
+          '{"event":"hosted_handler_failed"}',
+        );
+      expect(stderr).toBe(
+        sinkThrows ? "" : '{"event":"hosted_handler_failed"}\n',
+      );
+    },
+  );
 });

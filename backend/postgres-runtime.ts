@@ -1,4 +1,5 @@
 import { Pool, type PoolConfig } from "pg";
+import { emitBackendFailure } from "./backend-errors.js";
 import { PostgresStore } from "./postgres-store.js";
 
 export function postgresOptions(env: NodeJS.ProcessEnv): PoolConfig {
@@ -60,7 +61,7 @@ export function productionStoreFactory(env: NodeJS.ProcessEnv) {
     const pool = new Pool(postgresOptions(env));
     // Prevent idle pool errors becoming uncaught events; request errors still
     // propagate. No credentials, SQL or submitted data are logged.
-    pool.on("error", () => {});
+    pool.on("error", () => emitBackendFailure("postgres_idle_pool_error"));
     const store = new PostgresStore(async (sql, params) =>
       pool.query(sql, params),
     );

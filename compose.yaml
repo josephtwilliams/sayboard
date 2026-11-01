@@ -46,6 +46,7 @@ services:
         restart: true
     restart: unless-stopped
     environment:
+      GODEBUG: multipathtcp=0
       SAYBOARD_DOMAIN: ${SAYBOARD_DOMAIN}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

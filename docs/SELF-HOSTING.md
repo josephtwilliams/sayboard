@@ -24,6 +24,28 @@ The `boards` volume contains the SQLite database and retained source archives. K
 
 For an upgrade, back up first and run `docker compose up -d --build`. Compose recreates the proxy when the app's network namespace changes. For a manual restart, run `docker compose restart app` and then `docker compose restart proxy`, in that order. Restarting both simultaneously can race the shared namespace setup.
 
+### Mitigate the Linux kernel TCP vulnerability
+
+Compose sets `GODEBUG=multipathtcp=0` on Caddy to disable Go's default Multipath TCP listeners. This reduces exposure to the demonstrated exploit for [CVE-2026-98432](https://www.openwall.com/lists/oss-security/2026/10/30/1). It does not fix the underlying kernel vulnerability.
+
+Copy the updated `compose.yaml` to the server and recreate the proxy:
+
+```sh
+docker compose up -d --no-deps --force-recreate proxy
+```
+
+For the small VPS, use its existing project and both configuration files:
+
+```sh
+docker compose -p sayboard -f compose.yaml -f deploy/compose.small.yaml up -d --no-deps --no-build --pull never --force-recreate proxy
+```
+
+The app must already be running. A container restart does not apply a changed Compose environment. Check `/healthz` through HTTPS and verify that Caddy's listening sockets use TCP protocol `6`, rather than MPTCP protocol `262`. An empty `ss -M` result alone does not prove the absence of MPTCP listeners.
+
+If you override `GODEBUG`, retain `multipathtcp=0` alongside any other settings. For Caddy outside Docker, set the same environment variable in its service manager and restart Caddy. Keep this setting when rolling back application versions.
+
+Install a fixed host kernel and reboot when your distribution releases its update. Check the running kernel against the [Ubuntu advisory](https://ubuntu.com/security/CVE-2026-98432). Updating Caddy or its container does not update the host kernel.
+
 ## Create or reset an account
 
 Use a username with letters, digits, underscores or hyphens. The reserved development username `admin` cannot authenticate in production. Passwords need 16 to 256 characters. This Bash prompt hides the password and passes it on stdin, rather than in process arguments or environment variables:

@@ -418,33 +418,38 @@ try {
     ).status(),
     403,
   );
-  await startApp({ SAYBOARD_SMTP_HOST: "" });
-  const capabilities = await (
-    await client.get("/api/auth/capabilities")
-  ).json();
-  assert.equal(capabilities.signupEnabled, false);
-  assert.equal(capabilities.emailAvailability, "unavailable");
-  assert.equal(
-    (
-      await client.post("/api/auth/register", {
-        headers: { Origin: origin },
-        data: { username: "bypass", password },
-      })
-    ).status(),
-    403,
-  );
-  assert.equal(
-    (
-      await client.post("/api/auth/login", {
-        headers: { Origin: origin },
-        data: {
-          username: "teacher-webkit@example.test",
-          password: nextPassword,
-        },
-      })
-    ).status(),
-    200,
-  );
+  for (const mailFailure of [
+    { SAYBOARD_SMTP_HOST: "" },
+    { SAYBOARD_SMTP_PASSWORD: "" },
+  ]) {
+    await startApp(mailFailure);
+    const capabilities = await (
+      await client.get("/api/auth/capabilities")
+    ).json();
+    assert.equal(capabilities.signupEnabled, false);
+    assert.equal(capabilities.emailAvailability, "unavailable");
+    assert.equal(
+      (
+        await client.post("/api/auth/register", {
+          headers: { Origin: origin },
+          data: { username: "bypass", password },
+        })
+      ).status(),
+      403,
+    );
+    assert.equal(
+      (
+        await client.post("/api/auth/login", {
+          headers: { Origin: origin },
+          data: {
+            username: "teacher-webkit@example.test",
+            password: nextPassword,
+          },
+        })
+      ).status(),
+      200,
+    );
+  }
   assert.equal(
     [...secrets].some((secret) => serverLog.includes(secret)),
     false,

@@ -563,3 +563,60 @@ it("operator reset invalidates mailbox grants and email reset invalidates operat
   );
   expect(() => store.onboarding.inspect("operator-proof-two", now)).toThrow();
 });
+
+it("bounds in-flight email sends and releases admission after success and failure", async () => {
+  const releases: Array<() => void> = [];
+  mail.send = () => new Promise<void>((resolve) => releases.push(resolve));
+  const pending = [0, 1, 2].map((index) =>
+    call("email/request", {
+      kind: "signup",
+      email: `held-${index}@example.test`,
+    }),
+  );
+  let responses: Response[] = [];
+  try {
+    await vi.waitFor(() => expect(releases.length).toBeGreaterThanOrEqual(2));
+    expect(releases).toHaveLength(2);
+    expect(db.prepare("SELECT count(*) AS n FROM email_grants").get()?.n).toBe(
+      2,
+    );
+  } finally {
+    releases.forEach((release) => release());
+    responses = await Promise.all(pending);
+  }
+  expect(responses.map((response) => response.status).sort()).toEqual([
+    202, 202, 429,
+  ]);
+  mail.send = async () => {
+    throw new Error("Synthetic delivery failure");
+  };
+  for (const email of ["failed-one@example.test", "failed-two@example.test"])
+    expect(
+      (await call("email/request", { kind: "signup", email })).status,
+    ).toBe(202);
+  mail.send = async () => {};
+  expect(
+    (
+      await call("email/request", {
+        kind: "signup",
+        email: "after-release@example.test",
+      })
+    ).status,
+  ).toBe(202);
+});
+
+it("retains the verified email in code-recovery session responses", async () => {
+  const user = await signup("teacher@example.test");
+  const kit = record(
+    await (await call("recovery-kit", { password }, user)).json(),
+  );
+  const recovered = await call("recover", {
+    username: user.username,
+    password: password + " changed",
+    recoveryCode: text(kit.recoveryCode),
+  });
+  expect(recovered.status).toBe(200);
+  expect(record(await recovered.json()).verifiedEmail).toBe(
+    "teacher@example.test",
+  );
+});

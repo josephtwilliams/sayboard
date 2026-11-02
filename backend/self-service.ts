@@ -150,7 +150,6 @@ export class SqliteSelfService implements SelfServiceStore {
           !this.db.prepare("SELECT 1 FROM email_limits WHERE key=?").get(b.key),
       ).length;
       if (Number(keys?.n) + missing > 2048) return false;
-      // Reserve all budgets even when one is exhausted. Failed delivery never refunds them.
       let allowed = true;
       for (const b of budgets) {
         const row = this.db

@@ -161,6 +161,8 @@ export async function createApi(
   // Equal-cost verification for unknown usernames. Generated once at startup.
   const dummyHash = await hashPassword(newToken());
   let passwordChecks = 0;
+  let mailSends = 0;
+  const mailConcurrency = 2;
   const passwordConcurrency =
     config.kind === "hosted" ? (config.passwordConcurrency ?? 2) : 2;
   return async (request: Request, peer: string): Promise<Response> => {
@@ -290,10 +292,21 @@ export async function createApi(
             });
           const previous = sessionToken(request, cookieName);
           if (previous) await store.deleteSession(tokenHash(previous));
+          const recoveredAccount = registering
+            ? null
+            : await store.account(input.username);
           return json(
             registering ? 201 : 200,
             {
-              ...sessionBody(input.username, token, expiresAt, true),
+              ...sessionBody(
+                input.username,
+                token,
+                expiresAt,
+                true,
+                recoveredAccount
+                  ? selfService.verifiedEmail(recoveredAccount.id)
+                  : null,
+              ),
               recoveryCode,
             },
             { "Set-Cookie": cookie(token, SESSION_SECONDS) },
@@ -366,28 +379,37 @@ export async function createApi(
           } catch {
             throw new HttpError(400, "invalid_email");
           }
-          const proof = newToken();
-          selfService.issueEmail({
-            ...(kind === "link"
-              ? { kind, sessionHash: tokenHash(currentToken ?? "") }
-              : { kind }),
-            email,
-            tokenHash: tokenHash(proof),
-            peer,
-            now: now(),
-          });
-          try {
-            await mail.send({
-              kind: "email",
-              purpose: kind,
-              to: email,
-              url: `${config.origin}/teacher#email=${proof}`,
-              expiresAt: now() + 30 * 60_000,
+          if (mailSends >= mailConcurrency)
+            throw new HttpError(429, "too_many_attempts", {
+              "Retry-After": "60",
             });
-          } catch {
-            emitBackendFailure("email_delivery_failed");
+          mailSends++;
+          try {
+            const proof = newToken();
+            selfService.issueEmail({
+              ...(kind === "link"
+                ? { kind, sessionHash: tokenHash(currentToken ?? "") }
+                : { kind }),
+              email,
+              tokenHash: tokenHash(proof),
+              peer,
+              now: now(),
+            });
+            try {
+              await mail.send({
+                kind: "email",
+                purpose: kind,
+                to: email,
+                url: `${config.origin}/teacher#email=${proof}`,
+                expiresAt: now() + 30 * 60_000,
+              });
+            } catch {
+              emitBackendFailure("email_delivery_failed");
+            }
+            return json(202, { kind: "requested", retryAfterSeconds: 60 });
+          } finally {
+            mailSends--;
           }
-          return json(202, { kind: "requested", retryAfterSeconds: 60 });
         }
         if (!selfService.allowAttempt(`email:${peer}`, now()))
           throw new HttpError(429, "too_many_attempts");

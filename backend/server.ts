@@ -10,7 +10,6 @@ import { SqliteStore } from "./store.js";
 import { productionStoreFactory } from "./postgres-runtime.js";
 import { retainSources } from "./source-retention.js";
 import { sessionToken } from "./api-http.js";
-import { smtpMailer } from "./mail.js";
 import { googleConfig } from "./google.js";
 
 const json = (status: number, error: string) =>
@@ -61,11 +60,7 @@ export async function startServer(env: NodeJS.ProcessEnv) {
       "Use an exact HTTPS origin, or HTTP loopback for local verification",
     );
   const origin = publicURL.origin;
-  if (enabled) {
-    hostedConfig(env);
-    // Invalid optional email settings must stop startup, not turn every account request into a 503.
-    smtpMailer(env);
-  }
+  if (enabled) hostedConfig(env);
   // Reject partial credentials and unsupported storage before accepting traffic.
   googleConfig(env);
   const directory = await realpath(resolve(env.SAYBOARD_STATIC_DIR ?? "dist"));

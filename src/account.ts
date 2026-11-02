@@ -3,9 +3,13 @@ export type AccountSession = {
   account: { username: string };
   csrfToken: string;
   expiresAt: number;
+  recoveryEligible: boolean;
 };
 export type AccountBoard = { board: Board | null; revision: number };
-export type AccountAvailability = { state: "disabled" } | { state: "enabled" };
+export type AccountAvailability =
+  | { state: "disabled" }
+  | { state: "enabled"; signupEnabled: boolean; recoveryEnabled: boolean };
+export type RecoveryKit = { username: string; recoveryCode: string };
 export const disabledAccountMessage =
   "Account backup is not enabled on this host. You can keep using and saving your board on this device.";
 export class AccountError extends Error {
@@ -38,6 +42,7 @@ function parseSession(value: unknown): AccountSession {
     account: { username: value.account.username },
     csrfToken: value.csrfToken,
     expiresAt: value.expiresAt,
+    recoveryEligible: value.recoveryEligible === true,
   };
 }
 function parseAccountBoard(value: unknown): AccountBoard {
@@ -104,8 +109,34 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
     }
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) session = null;
+      const failure: unknown = await response.json().catch(() => null);
+      const code =
+        object(failure) && typeof failure.error === "string"
+          ? failure.error
+          : "";
+      const selfServiceMessages: Record<string, string> = {
+        username_unavailable:
+          "That username is unavailable. Choose another username or sign in.",
+        reserved_username: "Choose a different teacher username.",
+        invalid_password: "Use a password between 16 and 256 characters.",
+        current_password_incorrect:
+          "Current password did not match. Try again.",
+        invalid_credentials:
+          "Use a username with 1 to 64 letters, numbers, underscores or hyphens.",
+        recovery_failed:
+          "The username, recovery code or password did not match. Try again.",
+        invalid_recovery_code:
+          "Enter the complete recovery code from your recovery kit.",
+        signup_disabled:
+          "New workspaces are not available on this host. You can still sign in or recover an existing account.",
+        signup_capacity_reached:
+          "This host has reached its workspace limit. Try again later or contact the host administrator.",
+        too_many_attempts:
+          "Too many attempts. Wait five minutes, then try again.",
+      };
       const message =
-        response.status === 409
+        selfServiceMessages[code] ??
+        (response.status === 409
           ? "The account board changed on another device. Review the latest board before choosing which version to keep."
           : response.status === 503
             ? "The account service is unavailable. Try again later. Your local board is unchanged."
@@ -113,7 +144,7 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
               ? "Sign-in failed or your session expired. Your local board is unchanged."
               : response.status === 403
                 ? "This account request was rejected. Sign in again. Your local board is unchanged."
-                : "The account request failed. Your local board is unchanged.";
+                : "The account request failed. Your local board is unchanged.");
       throw new AccountError(response.status, message);
     }
     try {
@@ -161,7 +192,11 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
           session = null;
           availability = { state: "disabled" };
         } else {
-          availability = { state: "enabled" };
+          availability = {
+            state: "enabled",
+            signupEnabled: value.signupEnabled === true,
+            recoveryEnabled: value.recoveryEnabled === true,
+          };
         }
         return availability;
       })();
@@ -203,6 +238,59 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
           }),
         );
         return session;
+      });
+    },
+    async enterWorkspace(
+      input:
+        | { kind: "register"; username: string; password: string }
+        | {
+            kind: "recover";
+            username: string;
+            password: string;
+            recoveryCode: string;
+          },
+    ): Promise<RecoveryKit> {
+      return operation(async () => {
+        const { kind, ...credentials } = input;
+        const value = await request(`/api/auth/${kind}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentials),
+        });
+        session = parseSession(value);
+        if (
+          !object(value) ||
+          typeof value.recoveryCode !== "string" ||
+          !/^[a-f0-9]{64}$/.test(value.recoveryCode)
+        )
+          throw new AccountError(
+            502,
+            "Your workspace may be ready. Sign in with your password and replace your recovery code.",
+          );
+        return {
+          username: session.account.username,
+          recoveryCode: value.recoveryCode,
+        };
+      });
+    },
+    async replaceRecoveryKit(password: string): Promise<RecoveryKit> {
+      return operation(async () => {
+        const value = await request("/api/auth/recovery-kit", {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: JSON.stringify({ password }),
+        });
+        if (
+          !object(value) ||
+          typeof value.username !== "string" ||
+          typeof value.recoveryCode !== "string" ||
+          !/^[a-f0-9]{64}$/.test(value.recoveryCode)
+        )
+          throw new AccountError(
+            502,
+            "The recovery code could not be read. Replace it again with your password.",
+          );
+        return { username: value.username, recoveryCode: value.recoveryCode };
       });
     },
     async logout() {

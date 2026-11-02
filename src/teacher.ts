@@ -1,3 +1,4 @@
+import { teacherEntry, type TeacherEntryState } from "./teacher-entry";
 import { createDirectBoardEditor } from "./direct-board-editor";
 import { createThemeToggle } from "./theme-toggle";
 import { hasBoardChanges } from "./editor-state";
@@ -30,6 +31,9 @@ import { mountGoogleSignIn, googleSignInNotice } from "./google-signin";
 const root = document.querySelector<HTMLDivElement>("#teacher-app");
 if (!root) throw new Error("Missing teacher workspace");
 let signedIn = false;
+let entryState: TeacherEntryState = { kind: "signin" };
+let signupEnabled = false;
+let recoveryEnabled = false;
 let serviceDisabled = false;
 let operator = false;
 let busy = false;
@@ -396,6 +400,7 @@ async function perform(run: () => Promise<void>) {
 }
 
 function clearPrivateView() {
+  entryState = { kind: "signin" };
   signedIn = false;
   operator = false;
   rooms = [];
@@ -550,6 +555,17 @@ function render() {
         notice = "Signed out.";
       }),
     );
+  if (
+    signedIn &&
+    accountClient.currentSession()?.recoveryEligible &&
+    entryState.kind === "signin"
+  )
+    navigation.append(
+      button("Recovery kit", () => {
+        entryState = { kind: "replace" };
+        render();
+      }),
+    );
   header.append(brand, navigation);
   shell.append(header);
   const status = el(
@@ -559,7 +575,32 @@ function render() {
   );
   status.role = "status";
   status.setAttribute("aria-live", "polite");
-  if (!signedIn) {
+  if (entryState.kind !== "signin") {
+    shell.append(
+      teacherEntry(
+        entryState,
+        (work) => void perform(work),
+        (kit) => {
+          signedIn = true;
+          if (activeActionURL !== location.href) return;
+          entryState = { kind: "kit", kit };
+          notice =
+            "Your workspace is ready. Save your recovery kit before continuing.";
+        },
+        async () => {
+          entryState = { kind: "signin" };
+          rooms = await teacherClient.list();
+          operator = await canInvite();
+          notice = "Your recovery kit is saved. Your workspace is ready.";
+        },
+        () => {
+          entryState = { kind: "signin" };
+          render();
+        },
+      ),
+      status,
+    );
+  } else if (!signedIn) {
     shell.append(
       el("h1", "", "A familiar board for every learner."),
       el(
@@ -574,7 +615,9 @@ function render() {
       el(
         "p",
         "",
-        "The teacher pilot is invite-only. Open your invitation to choose a password, or sign in with your existing account.",
+        signupEnabled
+          ? "Create your own workspace, or sign in to your classrooms."
+          : "Sign in with your existing account, or open your invitation to choose a password.",
       ),
     );
     const login = el("form", "teacher-form");
@@ -616,9 +659,31 @@ function render() {
       el(
         "p",
         "teacher-muted",
-        "Need a password reset? Contact your Sayboard administrator. Student accounts and email addresses are not required.",
+        recoveryEnabled
+          ? "Use your recovery kit if you forgot your password. If you lost both, contact the host administrator."
+          : "Need a password reset? Contact your Sayboard administrator. Student accounts and email addresses are not required.",
       ),
     );
+    if (!serviceDisabled && signupEnabled)
+      card.append(
+        button(
+          "Create teacher workspace",
+          () => {
+            entryState = { kind: "register" };
+            notice = "Choose your teacher sign-in details.";
+            render();
+          },
+          "button primary",
+        ),
+      );
+    if (!serviceDisabled && recoveryEnabled)
+      card.append(
+        button("Recover workspace", () => {
+          entryState = { kind: "recover" };
+          notice = "Enter the recovery code you saved.";
+          render();
+        }),
+      );
     const welcome = el("section", "teacher-card teacher-welcome");
     welcome.append(
       el("h2", "", "Try a board before you sign up"),
@@ -1052,7 +1117,7 @@ function render() {
       "Boards and published vocabulary are stored on this server. Spoken messages and speech history are not collected. The communication board remains available without a teacher session.",
     ),
   );
-  if (signedIn) {
+  if (signedIn && entryState.kind === "signin") {
     const actions: Node[] = [];
     let contextAction: Node | undefined;
     if (room && profile) {
@@ -1136,6 +1201,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void refreshDeviceReports();
 });
 function handleLocationChange() {
+  entryState = { kind: "signin" };
   if (new URLSearchParams(location.hash.slice(1)).has("activate")) {
     location.reload();
     return;
@@ -1156,6 +1222,13 @@ function handleLocationChange() {
 }
 window.addEventListener("hashchange", handleLocationChange);
 window.addEventListener("popstate", handleLocationChange);
+window.addEventListener("pagehide", () => {
+  entryState = { kind: "signin" };
+  root?.replaceChildren();
+});
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) location.reload();
+});
 const activation = new URLSearchParams(location.hash.slice(1)).get("activate");
 const googleNotice = googleSignInNotice();
 if (activation !== null) {
@@ -1175,6 +1248,8 @@ if (activation !== null) {
         "Classroom hosting is not enabled on this website. Use the address provided by your administrator.";
       return;
     }
+    signupEnabled = availability.signupEnabled === true;
+    recoveryEnabled = availability.recoveryEnabled === true;
     const session = await accountClient.restoreSession();
     if (!session) {
       notice = googleNotice ?? "Sign in to open your classrooms.";

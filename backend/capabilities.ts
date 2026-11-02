@@ -1,5 +1,32 @@
+import { configuredMailer } from "./mail.js";
+import type { ApiConfig } from "./config.js";
 import { hostedConfig } from "./config.js";
 
+export function accountCapabilities(
+  config: ApiConfig | null,
+  supported: boolean,
+  mailReady: boolean,
+) {
+  const mode =
+    config?.kind === "hosted"
+      ? (config.teacherAccountMode ?? "username")
+      : "username";
+  const emailEnabled = config?.kind === "hosted" && supported && mailReady;
+  return {
+    signupMode: mode,
+    signupEnabled:
+      config?.kind === "hosted" &&
+      config.signupEnabled === true &&
+      supported &&
+      (mode === "username" || emailEnabled),
+    recoveryEnabled: config?.kind === "hosted" && supported,
+    emailAvailability: !supported
+      ? "unsupported"
+      : emailEnabled
+        ? "ready"
+        : "unavailable",
+  };
+}
 // Configuration discovery only. Enabled does not assert database health.
 export function createHostedCapabilitiesHandler(env: NodeJS.ProcessEnv) {
   return async (request: Request): Promise<Response> => {
@@ -28,8 +55,11 @@ export function createHostedCapabilitiesHandler(env: NodeJS.ProcessEnv) {
       return new Response(
         JSON.stringify({
           state: disabled ? "disabled" : "enabled",
-          signupEnabled: config?.signupEnabled === true,
-          recoveryEnabled: !disabled && env.SAYBOARD_STORAGE === "sqlite",
+          ...accountCapabilities(
+            config,
+            !disabled && env.SAYBOARD_STORAGE === "sqlite",
+            configuredMailer(env) !== null,
+          ),
         }),
         { status: 200, headers },
       );

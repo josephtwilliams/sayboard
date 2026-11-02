@@ -1,3 +1,4 @@
+import { accountCapabilities } from "./capabilities.js";
 import { body, HttpError, json, sessionToken } from "./api-http.js";
 import { emitBackendFailure } from "./backend-errors.js";
 import { deviceApi, teacherApi } from "./classroom-api.js";
@@ -57,20 +58,35 @@ export function requestRejection(
     return json(403, { error: "origin_rejected" });
   return null;
 }
-function credentials(value: unknown): { username: string; password: string } {
+type LoginIdentifier =
+  { kind: "username"; value: string } | { kind: "email"; value: string };
+function credentials(
+  value: unknown,
+  emailLogin = false,
+): { username: string; password: string } {
   if (
     typeof value !== "object" ||
     value === null ||
     !("username" in value) ||
     !("password" in value) ||
     typeof value.username !== "string" ||
-    !/^[a-zA-Z0-9_-]{1,64}$/.test(value.username) ||
+    !(emailLogin && value.username.includes("@")
+      ? value.username.length <= 254
+      : /^[a-zA-Z0-9_-]{1,64}$/.test(value.username)) ||
     typeof value.password !== "string" ||
     value.password.length < 1 ||
     value.password.length > 256
   )
     throw new HttpError(400, "invalid_credentials");
-  return { username: value.username, password: value.password };
+  let username = value.username;
+  if (emailLogin && username.includes("@")) {
+    try {
+      username = emailAddress(username);
+    } catch {
+      throw new HttpError(400, "invalid_email");
+    }
+  }
+  return { username, password: value.password };
 }
 function registration(value: unknown): RegistrationInput {
   const input = credentials(value);
@@ -134,11 +150,13 @@ export async function createApi(
     token: string,
     expiresAt: number,
     recoveryEligible: boolean,
+    verifiedEmail: string | null = null,
   ) => ({
     account: { username },
     csrfToken: csrfToken(token),
     expiresAt,
     recoveryEligible,
+    verifiedEmail,
   });
   // Equal-cost verification for unknown usernames. Generated once at startup.
   const dummyHash = await hashPassword(newToken());
@@ -211,7 +229,14 @@ export async function createApi(
           config.kind === "hosted" ? store.selfService : undefined;
         if (!selfService) throw new HttpError(503, "self_service_unavailable");
         const registering = url.pathname === "/api/auth/register";
-        if (registering && !(config.kind === "hosted" && config.signupEnabled))
+        if (
+          registering &&
+          !(
+            config.kind === "hosted" &&
+            config.signupEnabled &&
+            config.teacherAccountMode !== "verified-email"
+          )
+        )
           throw new HttpError(403, "signup_disabled");
         if (
           !selfService.allowAttempt(peer, now()) ||
@@ -229,7 +254,7 @@ export async function createApi(
         if (
           registering &&
           (/^admin$/i.test(input.username) ||
-            /^teacher_[a-f0-9]{16}$/i.test(input.username))
+            /^teacher_(?:[a-f0-9]{16}|[a-f0-9]{32})$/i.test(input.username))
         )
           throw new HttpError(400, "reserved_username");
         if (passwordChecks >= passwordConcurrency)
@@ -277,6 +302,171 @@ export async function createApi(
           passwordChecks--;
         }
       }
+      if (url.pathname.startsWith("/api/auth/email/")) {
+        if (request.method !== "POST")
+          throw new HttpError(405, "method_not_allowed", { Allow: "POST" });
+        const selfService =
+          config.kind === "hosted" ? store.selfService : undefined;
+        if (!selfService || config.kind !== "hosted")
+          throw new HttpError(503, "self_service_unavailable");
+        const input = await body(request, 4096);
+        if (typeof input !== "object" || input === null)
+          throw new HttpError(400, "invalid_email_request");
+        const path = url.pathname;
+        const requesting =
+          path === "/api/auth/email/request" || path === "/api/auth/email/link";
+        if (
+          !requesting &&
+          path !== "/api/auth/email/inspect" &&
+          path !== "/api/auth/email/complete"
+        )
+          throw new HttpError(404, "not_found");
+        const linking =
+          path === "/api/auth/email/link" ||
+          (path.endsWith("/complete") &&
+            "kind" in input &&
+            input.kind === "link");
+        const currentToken = sessionToken(request, cookieName);
+        const currentSession =
+          linking && currentToken
+            ? await store.session(tokenHash(currentToken), now())
+            : null;
+        if (
+          linking &&
+          (!currentToken ||
+            !currentSession ||
+            !selfService.eligible(currentSession.account.id))
+        )
+          throw new HttpError(401, "unauthenticated");
+        if (
+          linking &&
+          !matchesToken(
+            request.headers.get("x-csrf-token"),
+            csrfToken(currentToken ?? ""),
+          )
+        )
+          throw new HttpError(403, "csrf_rejected");
+        if (requesting) {
+          if (!mail) throw new HttpError(503, "email_unconfigured");
+          const kind = linking ? "link" : "kind" in input ? input.kind : null;
+          if (
+            (!linking && kind !== "signup" && kind !== "reset") ||
+            (kind !== "signup" && kind !== "reset" && kind !== "link")
+          )
+            throw new HttpError(400, "invalid_email_request");
+          if (
+            kind === "signup" &&
+            (!config.signupEnabled ||
+              config.teacherAccountMode !== "verified-email")
+          )
+            throw new HttpError(403, "signup_disabled");
+          let email: string;
+          try {
+            email = emailAddress("email" in input ? input.email : null);
+          } catch {
+            throw new HttpError(400, "invalid_email");
+          }
+          const proof = newToken();
+          selfService.issueEmail({
+            ...(kind === "link"
+              ? { kind, sessionHash: tokenHash(currentToken ?? "") }
+              : { kind }),
+            email,
+            tokenHash: tokenHash(proof),
+            peer,
+            now: now(),
+          });
+          try {
+            await mail.send({
+              kind: "email",
+              purpose: kind,
+              to: email,
+              url: `${config.origin}/teacher#email=${proof}`,
+              expiresAt: now() + 30 * 60_000,
+            });
+          } catch {
+            emitBackendFailure("email_delivery_failed");
+          }
+          return json(202, { kind: "requested", retryAfterSeconds: 60 });
+        }
+        if (!selfService.allowAttempt(`email:${peer}`, now()))
+          throw new HttpError(429, "too_many_attempts");
+        if (
+          !("token" in input) ||
+          typeof input.token !== "string" ||
+          !/^[a-f0-9]{64}$/.test(input.token)
+        )
+          throw new HttpError(400, "email_link_unavailable");
+        const hash = tokenHash(input.token);
+        const view = selfService.inspectEmail(hash, now());
+        if (path.endsWith("/inspect")) return json(200, view);
+        if (
+          !("kind" in input) ||
+          view.kind === "unavailable" ||
+          input.kind !== view.kind
+        )
+          throw new HttpError(400, "email_link_unavailable");
+        if (
+          view.kind === "signup" &&
+          (!config.signupEnabled ||
+            config.teacherAccountMode !== "verified-email" ||
+            !mail)
+        )
+          throw new HttpError(403, "signup_disabled");
+        if (
+          !("password" in input) ||
+          typeof input.password !== "string" ||
+          input.password.length < 16 ||
+          input.password.length > 256
+        )
+          throw new HttpError(400, "invalid_password");
+        if (passwordChecks >= passwordConcurrency)
+          throw new HttpError(429, "too_many_attempts");
+        passwordChecks++;
+        try {
+          if (view.kind === "link") {
+            if (
+              !currentSession ||
+              !currentToken ||
+              !(await verifyPassword(
+                input.password,
+                currentSession.account.passwordHash,
+              ))
+            )
+              throw new HttpError(400, "current_password_incorrect");
+            selfService.completeEmail({
+              kind: "link",
+              tokenHash: hash,
+              now: now(),
+              sessionHash: tokenHash(currentToken),
+              verifiedPasswordHash: currentSession.account.passwordHash,
+            });
+            return json(200, { kind: "linked" });
+          }
+          const passwordHash = await hashPassword(input.password);
+          const token = newToken();
+          const expiresAt = now() + SESSION_SECONDS * 1000;
+          const username = selfService.completeEmail({
+            kind: view.kind,
+            tokenHash: hash,
+            now: now(),
+            passwordHash,
+            sessionHash: tokenHash(token),
+            expiresAt,
+            capacity: config.publicAccountLimit ?? 100,
+          });
+          if (currentToken) await store.deleteSession(tokenHash(currentToken));
+          return json(
+            200,
+            sessionBody(username, token, expiresAt, true, view.email),
+            {
+              "Set-Cookie": cookie(token, SESSION_SECONDS),
+            },
+          );
+        } finally {
+          passwordChecks--;
+        }
+      }
       if (url.pathname.startsWith("/api/device/"))
         return await deviceApi(request, store, config, peer, now());
       const classroomRequest =
@@ -313,14 +503,10 @@ export async function createApi(
       if (url.pathname === "/api/auth/capabilities")
         return json(200, {
           state: "enabled",
-          signupEnabled:
-            config.kind === "hosted" &&
-            config.signupEnabled === true &&
-            !!store.selfService,
-          recoveryEnabled: config.kind === "hosted" && !!store.selfService,
+          ...accountCapabilities(config, !!store.selfService, mail !== null),
         });
       if (url.pathname === "/api/auth/login") {
-        const input = credentials(await body(request));
+        const input = credentials(await body(request), true);
         if (
           !(await store.allowLogin(peer, now())) ||
           passwordChecks >= passwordConcurrency
@@ -336,7 +522,14 @@ export async function createApi(
         let account;
         let valid: boolean;
         try {
-          account = await store.account(input.username);
+          const identifier: LoginIdentifier = input.username.includes("@")
+            ? { kind: "email", value: input.username }
+            : { kind: "username", value: input.username };
+          const username =
+            identifier.kind === "email"
+              ? store.selfService?.emailUsername(identifier.value)
+              : identifier.value;
+          account = username ? await store.account(username) : null;
           valid = await verifyPassword(
             input.password,
             account?.passwordHash.startsWith("scrypt$")
@@ -376,6 +569,7 @@ export async function createApi(
             expiresAt,
             config.kind === "hosted" &&
               !!store.selfService?.eligible(account.id),
+            store.selfService?.verifiedEmail(account.id) ?? null,
           ),
           { "Set-Cookie": cookie(token, SESSION_SECONDS) },
         );
@@ -404,6 +598,7 @@ export async function createApi(
             session.expiresAt,
             config.kind === "hosted" &&
               !!store.selfService?.eligible(session.account.id),
+            store.selfService?.verifiedEmail(session.account.id) ?? null,
           ),
         );
       if (url.pathname === "/api/auth/recovery-kit") {

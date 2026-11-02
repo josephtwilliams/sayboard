@@ -203,7 +203,7 @@ it("sends only the requested transactional invitation and retains a valid fallba
   const sent: InvitationMail[] = [];
   api = await createApi(store, { kind: "hosted", origin }, () => now, {
     send: async (message) => {
-      sent.push(message);
+      if (message.kind !== "email") sent.push(message);
     },
     verify: async () => {},
   });

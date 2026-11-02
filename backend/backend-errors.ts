@@ -1,4 +1,5 @@
 const lines = {
+  email_delivery_failed: '{"event":"email_delivery_failed"}',
   account_request_failed: '{"event":"account_request_failed"}',
   hosted_handler_failed: '{"event":"hosted_handler_failed"}',
   postgres_idle_pool_error: '{"event":"postgres_idle_pool_error"}',

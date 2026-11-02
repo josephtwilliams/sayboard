@@ -12,6 +12,7 @@ export type HostedConfig = {
   origin: string;
   passwordConcurrency?: 1 | 2;
   signupEnabled?: boolean;
+  teacherAccountMode?: "username" | "verified-email";
   publicAccountLimit?: number;
 };
 export type ApiConfig = LocalConfig | HostedConfig;
@@ -48,6 +49,12 @@ export function hostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
   const passwordConcurrency = env.SAYBOARD_PASSWORD_CONCURRENCY ?? "2";
   if (passwordConcurrency !== "1" && passwordConcurrency !== "2")
     throw new Error("Password concurrency must be 1 or 2");
+  const teacherAccountMode = env.SAYBOARD_TEACHER_ACCOUNT_MODE ?? "username";
+  if (
+    teacherAccountMode !== "username" &&
+    teacherAccountMode !== "verified-email"
+  )
+    throw new Error("Invalid teacher account mode");
   const signup = env.SAYBOARD_SIGNUP_ENABLED ?? "0";
   const capacity = env.SAYBOARD_PUBLIC_ACCOUNT_LIMIT ?? "100";
   if (
@@ -60,6 +67,7 @@ export function hostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
   return {
     kind: "hosted",
     signupEnabled: signup === "1",
+    teacherAccountMode,
     publicAccountLimit: Number(capacity),
     origin: url.origin,
     passwordConcurrency: passwordConcurrency === "1" ? 1 : 2,

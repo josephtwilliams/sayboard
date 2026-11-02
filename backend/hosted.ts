@@ -4,7 +4,7 @@ import { hostedConfig } from "./config.js";
 import { createApi, requestRejection } from "./api.js";
 import { tokenHash } from "./password.js";
 import type { Store } from "./store-contract.js";
-import { smtpMailer } from "./mail.js";
+import { configuredMailer } from "./mail.js";
 import {
   createGoogleHandler,
   googleConfig,
@@ -54,7 +54,7 @@ export function createHostedHandler(
     pending ??= Promise.resolve()
       .then(getStore)
       .then(async (store) => ({
-        api: await createApi(store, config, now, smtpMailer(env)),
+        api: await createApi(store, config, now, configuredMailer(env)),
         google: createGoogleHandler(store, config, googleConfig(env), now),
       }));
     const attempt = pending;

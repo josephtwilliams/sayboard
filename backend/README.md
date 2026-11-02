@@ -49,3 +49,13 @@ node scripts/verify-vps.mjs
 ```
 
 The VPS check requires the container image built as `sayboard:publication-review`. It starts an isolated local HTTPS proxy and actual Node/SQLite server, uses synthetic accounts, and removes only its own test volumes afterward. It does not touch a deployed service.
+
+## Public teacher workspaces
+
+For hosted SQLite, set `SAYBOARD_AUTH_ENABLED=1` and `SAYBOARD_SIGNUP_ENABLED=1` to let teachers create their own workspaces at `/teacher`. Signup is off by default. PostgreSQL and local development do not support public signup. Invalid settings fail closed.
+
+`SAYBOARD_PUBLIC_ACCOUNT_LIMIT` is a positive integer, defaulting to 100 current public accounts. This is an operational limit, not a measured hosting capacity. Deleting a public account releases its place. Password resets do not. Existing per-account board limits still apply. Public credential requests share a persisted five-minute limit of 10 per peer and 100 across the host. Excess requests return a retryable error. Password hashing shares the existing concurrency budget with sign-in and invitation activation.
+
+Registration signs the teacher in and shows a recovery kit before classroom creation. Teachers must save the code privately. A code can recover the account once and is replaced after use. Recovery changes the password, revokes teacher sessions and pending password-reset invitations, and keeps classrooms and learner links. Turning off signup leaves recovery available. Ordinary password teachers can replace a lost code from **Recovery kit** after confirming their current password. Google accounts use Google recovery. Operators use the existing administrator reset process. Losing both password and code requires administrator help.
+
+Only code hashes are stored. CLI and invitation password resets revoke recovery codes. Back up the SQLite database using the existing backup procedure so recovery records and public-account counts stay with the accounts.

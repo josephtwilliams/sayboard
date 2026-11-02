@@ -161,6 +161,67 @@ describe("PostgreSQL schema and store using in-process PostgreSQL", () => {
     await store.deleteSession(hash);
     expect(await store.session(hash, 0)).toBeNull();
   });
+  it("issues password sessions only while the verified credential remains current", async () => {
+    const early = tokenHash("early-password-session");
+    expect(
+      await store.createPasswordSession(early, owner, passwordHash, 2000),
+    ).toBe(true);
+    const next = await hashPassword("synthetic changed password for reset");
+    await db.query(
+      "UPDATE sayboard.accounts SET password_hash=$1 WHERE id=$2",
+      [next, owner],
+    );
+    await db.query("DELETE FROM sayboard.sessions WHERE account_id=$1", [
+      owner,
+    ]);
+    expect(await store.session(early, 1000)).toBeNull();
+    expect(
+      await store.createPasswordSession(
+        tokenHash("late-password-session"),
+        owner,
+        passwordHash,
+        2000,
+      ),
+    ).toBe(false);
+    expect(
+      await store.createPasswordSession(
+        tokenHash("current-password-session"),
+        owner,
+        next,
+        2000,
+      ),
+    ).toBe(true);
+  });
+  it("issues password sessions without permission to change stored passwords", async () => {
+    await db.exec(`
+      CREATE ROLE password_session_runtime;
+      GRANT USAGE ON SCHEMA sayboard TO password_session_runtime;
+      GRANT SELECT ON sayboard.accounts TO password_session_runtime;
+      GRANT UPDATE (local_only) ON sayboard.accounts TO password_session_runtime;
+      GRANT SELECT, INSERT ON sayboard.sessions TO password_session_runtime;
+      SET ROLE password_session_runtime;
+    `);
+    try {
+      expect(
+        await store.createPasswordSession(
+          tokenHash("restricted-password-session"),
+          owner,
+          passwordHash,
+          2000,
+        ),
+      ).toBe(true);
+      await expect(
+        db.query("UPDATE sayboard.accounts SET password_hash=$1 WHERE id=$2", [
+          passwordHash,
+          owner,
+        ]),
+      ).rejects.toThrow(/permission denied/);
+    } finally {
+      await db.exec(
+        "RESET ROLE; DROP OWNED BY password_session_runtime; DROP ROLE password_session_runtime",
+      );
+    }
+  });
   it("isolates owners and preserves complete boards and revisions", async () => {
     const board = starterBoard();
     expect(await store.board(owner)).toBeNull();

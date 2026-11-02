@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import { invalidateCredentials } from "./self-service.js";
 import { HttpError } from "./api-http.js";
 
 export type InvitationKind = "invite" | "reset";
@@ -153,9 +154,7 @@ export class SqliteOnboarding implements OnboardingStore {
         if (!account || typeof account.id !== "string")
           throw new HttpError(410, "invitation_unavailable");
         accountId = account.id;
-        this.db
-          .prepare("DELETE FROM sessions WHERE account_id=?")
-          .run(accountId);
+        invalidateCredentials(this.db, accountId);
       }
     });
   }

@@ -1,6 +1,6 @@
 # Run your own Sayboard
 
-The free app needs no account service. Optional accounts use the same server and a local SQLite database. There is no managed-service dependency or email requirement for password accounts. Public signup is disabled by default. Operators create accounts and reset passwords through a server command, or enable optional Google teacher sign-in and explicitly allow new Google accounts.
+The free app needs no account service. Optional accounts use the same server and a local SQLite database. There is no managed-service dependency or email requirement for password accounts. Public signup is disabled by default. You can enable first-party teacher signup, create accounts through a server command, or enable optional Google teacher sign-in.
 
 ## Deploy on a VPS with Docker Compose
 
@@ -57,7 +57,7 @@ printf '%s' "$sayboard_password" | docker compose exec -T app node server-dist/m
 unset sayboard_password
 ```
 
-To reset an existing account, replace `create teacher` with `reset-password teacher`. A reset revokes that account's existing sessions. Account commands never seed demonstration credentials or overwrite an existing account automatically.
+To reset an existing account, replace `create teacher` with `reset-password teacher`. A reset revokes that account's existing sessions and recovery code. Account commands never seed demonstration credentials or overwrite an existing account automatically.
 
 Open the site, enter caregiver mode, expand **Backup and transfer**, and sign in. Choose explicitly when to save or load a copy. Saving an account copy does not replace the working local board. A loaded copy first becomes a caregiver draft; **Save board** applies it to the device.
 
@@ -65,7 +65,15 @@ The teacher dashboard is `/teacher`. Its [classroom workflow](TEACHER-PILOT.md) 
 
 Optional [Google teacher sign-in](GOOGLE-SIGN-IN.md) lets adults start without choosing another username or password. It requires a Google Cloud web OAuth client and server-only credentials. Existing passwords and invitations remain available; Google is disabled by default.
 
-### Invite-only onboarding and email
+### Enable teacher self-service
+
+For the hosted SQLite installation, set `SAYBOARD_SIGNUP_ENABLED=1` alongside `SAYBOARD_AUTH_ENABLED=1`, then recreate the app and proxy. Teachers can choose **Create teacher workspace** at `/teacher`, choose a username and password, and save their recovery kit before creating a classroom. No invitation, email provider or Google credentials are required.
+
+Set `SAYBOARD_PUBLIC_ACCOUNT_LIMIT` to the maximum current public accounts you want to support. The default is 100. This is an operational ceiling, not a measured capacity guarantee. Password resets do not release a place; deleting an account does. The host limits public credential requests to 10 per peer and 100 across the host per five-minute window. Existing board storage limits still apply.
+
+Setting `SAYBOARD_SIGNUP_ENABLED=0` stops new public accounts while existing sign-in and code recovery keep working. Teachers can replace their recovery code from **Recovery kit** after confirming their current password. A recovery code works once, revokes other teacher sessions and is replaced with a new code. Learner links and published boards stay in place. If a teacher loses both their password and code, use the administrator reset procedure above. Google accounts use Google's recovery process. Operators use administrator resets.
+
+### Invitations and email
 
 After creating the organiser's account, run `docker compose exec -T app node server-dist/manage.cjs enable-invites organiser`. That account can create teacher invitations and password-reset links from the dashboard. Use `disable-invites organiser` to remove this permission immediately. Other teachers cannot invite accounts. New accounts created through invitations receive no organiser permission.
 

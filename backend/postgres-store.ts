@@ -59,6 +59,20 @@ export class PostgresStore implements Store {
       [hash, accountId, expiresAt],
     );
   }
+  async createPasswordSession(
+    hash: string,
+    accountId: string,
+    verifiedPasswordHash: string,
+    expiresAt: number,
+  ): Promise<boolean> {
+    const result = await this.query(
+      `INSERT INTO sayboard.sessions(token_hash, account_id, expires_at)
+      SELECT $1, id, $3 FROM (SELECT id FROM sayboard.accounts
+      WHERE id=$2 AND password_hash=$4 FOR UPDATE) AS verified RETURNING token_hash`,
+      [hash, accountId, expiresAt, verifiedPasswordHash],
+    );
+    return result.rows.length === 1;
+  }
   async deleteSession(hash: string): Promise<void> {
     await this.query("DELETE FROM sayboard.sessions WHERE token_hash = $1", [
       hash,

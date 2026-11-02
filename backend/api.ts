@@ -3,6 +3,7 @@ import { emitBackendFailure } from "./backend-errors.js";
 import { deviceApi, teacherApi } from "./classroom-api.js";
 import { parseBoard } from "../src/board.js";
 import type { ApiConfig } from "./config.js";
+import type { RegistrationInput, RecoveryInput } from "./self-service.js";
 import type { Store } from "./store-contract.js";
 import { emailAddress, type Mailer } from "./mail.js";
 import {
@@ -71,6 +72,29 @@ function credentials(value: unknown): { username: string; password: string } {
     throw new HttpError(400, "invalid_credentials");
   return { username: value.username, password: value.password };
 }
+function registration(value: unknown): RegistrationInput {
+  const input = credentials(value);
+  if (input.password.length < 16) throw new HttpError(400, "invalid_password");
+  if (
+    Object.keys(typeof value === "object" && value !== null ? value : {}).some(
+      (key) => !["username", "password", "recoveryCode"].includes(key),
+    )
+  )
+    throw new HttpError(400, "invalid_credentials");
+  return input;
+}
+function recovery(value: unknown): RecoveryInput {
+  const input = registration(value);
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("recoveryCode" in value) ||
+    typeof value.recoveryCode !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.recoveryCode)
+  )
+    throw new HttpError(400, "invalid_recovery_code");
+  return { ...input, recoveryCode: value.recoveryCode };
+}
 function boardWrite(value: unknown) {
   if (
     typeof value !== "object" ||
@@ -103,6 +127,19 @@ export async function createApi(
     config.kind === "local"
       ? account.localOnly
       : !account.localOnly && account.username.toLowerCase() !== "admin";
+  if (config.kind === "hosted" && config.signupEnabled && !store.selfService)
+    throw new Error("Self-service storage unavailable");
+  const sessionBody = (
+    username: string,
+    token: string,
+    expiresAt: number,
+    recoveryEligible: boolean,
+  ) => ({
+    account: { username },
+    csrfToken: csrfToken(token),
+    expiresAt,
+    recoveryEligible,
+  });
   // Equal-cost verification for unknown usernames. Generated once at startup.
   const dummyHash = await hashPassword(newToken());
   let passwordChecks = 0;
@@ -167,6 +204,79 @@ export async function createApi(
         }
         return json(200, { ok: true, username: invitation.username });
       }
+      if (["/api/auth/register", "/api/auth/recover"].includes(url.pathname)) {
+        if (request.method !== "POST")
+          throw new HttpError(405, "method_not_allowed", { Allow: "POST" });
+        const selfService =
+          config.kind === "hosted" ? store.selfService : undefined;
+        if (!selfService) throw new HttpError(503, "self_service_unavailable");
+        const registering = url.pathname === "/api/auth/register";
+        if (registering && !(config.kind === "hosted" && config.signupEnabled))
+          throw new HttpError(403, "signup_disabled");
+        if (
+          !selfService.allowAttempt(peer, now()) ||
+          passwordChecks >= passwordConcurrency
+        )
+          throw new HttpError(429, "too_many_attempts", {
+            "Retry-After": "300",
+          });
+        const value = await body(request, 4096);
+        const input:
+          | (RegistrationInput & { kind: "register" })
+          | (RecoveryInput & { kind: "recover" }) = registering
+          ? { kind: "register", ...registration(value) }
+          : { kind: "recover", ...recovery(value) };
+        if (
+          registering &&
+          (/^admin$/i.test(input.username) ||
+            /^teacher_[a-f0-9]{16}$/i.test(input.username))
+        )
+          throw new HttpError(400, "reserved_username");
+        if (passwordChecks >= passwordConcurrency)
+          throw new HttpError(429, "too_many_attempts", {
+            "Retry-After": "300",
+          });
+        passwordChecks++;
+        try {
+          const passwordHash = await hashPassword(input.password);
+          const recoveryCode = newToken();
+          const token = newToken();
+          const expiresAt = now() + SESSION_SECONDS * 1000;
+          const grant = {
+            username: input.username,
+            passwordHash,
+            recoveryHash: tokenHash(recoveryCode),
+            sessionHash: tokenHash(token),
+            expiresAt,
+          };
+          if (input.kind === "recover")
+            selfService.recover({
+              ...grant,
+              previousRecoveryHash: tokenHash(input.recoveryCode),
+            });
+          else
+            selfService.register({
+              ...grant,
+              now: now(),
+              capacity:
+                config.kind === "hosted"
+                  ? (config.publicAccountLimit ?? 100)
+                  : 100,
+            });
+          const previous = sessionToken(request, cookieName);
+          if (previous) await store.deleteSession(tokenHash(previous));
+          return json(
+            registering ? 201 : 200,
+            {
+              ...sessionBody(input.username, token, expiresAt, true),
+              recoveryCode,
+            },
+            { "Set-Cookie": cookie(token, SESSION_SECONDS) },
+          );
+        } finally {
+          passwordChecks--;
+        }
+      }
       if (url.pathname.startsWith("/api/device/"))
         return await deviceApi(request, store, config, peer, now());
       const classroomRequest =
@@ -178,6 +288,7 @@ export async function createApi(
         "/api/auth/login",
         "/api/auth/session",
         "/api/auth/logout",
+        "/api/auth/recovery-kit",
         "/api/board",
         "/api/invitations",
       ];
@@ -200,7 +311,14 @@ export async function createApi(
           { Allow: allowed.join(", ") },
         );
       if (url.pathname === "/api/auth/capabilities")
-        return json(200, { state: "enabled" });
+        return json(200, {
+          state: "enabled",
+          signupEnabled:
+            config.kind === "hosted" &&
+            config.signupEnabled === true &&
+            !!store.selfService,
+          recoveryEnabled: config.kind === "hosted" && !!store.selfService,
+        });
       if (url.pathname === "/api/auth/login") {
         const input = credentials(await body(request));
         if (
@@ -241,14 +359,24 @@ export async function createApi(
         if (previous) await store.deleteSession(tokenHash(previous));
         const token = newToken();
         const expiresAt = now() + SESSION_SECONDS * 1000;
-        await store.createSession(tokenHash(token), account.id, expiresAt);
+        if (
+          !(await store.createPasswordSession(
+            tokenHash(token),
+            account.id,
+            account.passwordHash,
+            expiresAt,
+          ))
+        )
+          throw new HttpError(401, "login_failed");
         return json(
           200,
-          {
-            account: { username: account.username },
-            csrfToken: csrfToken(token),
+          sessionBody(
+            account.username,
+            token,
             expiresAt,
-          },
+            config.kind === "hosted" &&
+              !!store.selfService?.eligible(account.id),
+          ),
           { "Set-Cookie": cookie(token, SESSION_SECONDS) },
         );
       }
@@ -268,11 +396,63 @@ export async function createApi(
       )
         throw new HttpError(403, "csrf_rejected");
       if (url.pathname === "/api/auth/session")
-        return json(200, {
-          account: { username: session.account.username },
-          csrfToken: csrfToken(token),
-          expiresAt: session.expiresAt,
-        });
+        return json(
+          200,
+          sessionBody(
+            session.account.username,
+            token,
+            session.expiresAt,
+            config.kind === "hosted" &&
+              !!store.selfService?.eligible(session.account.id),
+          ),
+        );
+      if (url.pathname === "/api/auth/recovery-kit") {
+        const selfService =
+          config.kind === "hosted" ? store.selfService : undefined;
+        if (!selfService || !selfService.eligible(session.account.id))
+          throw new HttpError(403, "recovery_unavailable");
+        if (!selfService.allowAttempt(peer, now()))
+          throw new HttpError(429, "too_many_attempts", {
+            "Retry-After": "300",
+          });
+        const input = await body(request, 4096);
+        if (
+          typeof input !== "object" ||
+          input === null ||
+          !("password" in input) ||
+          typeof input.password !== "string" ||
+          input.password.length < 16 ||
+          input.password.length > 256 ||
+          Object.keys(input).length !== 1
+        )
+          throw new HttpError(400, "invalid_password");
+        if (passwordChecks >= passwordConcurrency)
+          throw new HttpError(429, "too_many_attempts", {
+            "Retry-After": "300",
+          });
+        passwordChecks++;
+        try {
+          if (
+            !(await verifyPassword(
+              input.password,
+              session.account.passwordHash,
+            ))
+          )
+            throw new HttpError(400, "current_password_incorrect");
+          const recoveryCode = newToken();
+          selfService.replace({
+            accountId: session.account.id,
+            verifiedPasswordHash: session.account.passwordHash,
+            recoveryHash: tokenHash(recoveryCode),
+          });
+          return json(200, {
+            recoveryCode,
+            username: session.account.username,
+          });
+        } finally {
+          passwordChecks--;
+        }
+      }
       if (url.pathname === "/api/auth/logout") {
         await store.deleteSession(tokenHash(token));
         return json(200, { ok: true }, { "Set-Cookie": cookie("", 0) });

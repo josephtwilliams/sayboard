@@ -10,7 +10,7 @@ Choose **Save to teacher workspace** when the example is worth keeping. In the e
 
 ## First classroom
 
-1. If Google sign-in is offered, choose **Continue with Google**. Otherwise open your organiser's private invitation, choose a password of at least 16 characters, and sign in with the username shown. Invitations work once and expire after 48 hours. Existing password accounts can sign in directly. Learners need no email address or password.
+1. If **Create teacher workspace** is offered, choose a username and a password of 16 to 256 characters. Save the recovery kit privately, then choose **I saved my recovery kit**. You are already signed in. Hosts must opt into public signup. Existing accounts can sign in directly. Google sign-in and private invitations remain alternatives when offered. Invitations work once and expire after 48 hours. Learners need no email address or password.
 2. On an empty workspace, enter a classroom name and learner alias such as `Learner A`, then choose **Create first board**. This creates both together and opens the board workspace. If you came from the example, the form explains that this saves it as a private draft on the server. Start with demonstration vocabulary. Returning teachers can create additional classrooms and add profiles separately.
 3. Choose **Edit board**. The existing board editor supports tiles, categories, import and export. **Save classroom draft** stores the draft on the server.
 4. Choose **Preview board** to try the actual communication view. Return to the dashboard and **Publish saved draft** when it is ready.
@@ -26,6 +26,10 @@ The dashboard's **Connect a learner device** section refreshes device reports au
 
 ## Recover or remove access
 
+For a password account, choose **Recover workspace** on the sign-in page and enter your username, saved recovery code and a new password. Save the replacement recovery kit. The old code works only once, and recovery signs out other teacher sessions. Your classrooms, publications and linked learner devices remain in place. Recovery remains available when the host stops accepting new public accounts.
+
+While signed in, choose **Recovery kit** and confirm your current password to replace a lost code. The previous code stops working. If you lose both the password and code, ask your host administrator for a reset. Google accounts use Google recovery; organiser accounts use the administrator reset procedure.
+
 **More board options** contains export, refresh and copy controls. These do not need to be set up before trying or connecting the first board.
 
 Open **Published versions** and select an older version in the dashboard to restore it into the draft, then preview and publish separately. Linked devices receive the new publication automatically at the next safe point.
@@ -40,13 +44,13 @@ An operator enables invitation controls for the pilot organiser's account. After
 
 Choose a unique teacher username, then create a private link or select email delivery when configured. Send an email only to the intended adult. Teachers choose their own passwords; the organiser does not need to know them. A new link replaces an older unused link for the same username. **Cancel pending link** revokes an unused invitation without deleting an existing account.
 
-For a password reset, choose **Existing teacher password reset** and enter the existing username. That link expires after one hour. Saving the new password invalidates the old password and signs out existing teacher sessions. Password recovery during the pilot is organiser-assisted; there is no public recovery form or automatic signup.
+For a password reset, choose **Existing teacher password reset** and enter the existing username. That link expires after one hour. Saving the new password invalidates the old password and signs out existing teacher sessions. The reset also revokes any recovery code. This remains available for teachers who cannot use their recovery kit.
 
 Email delivery uses optional standard SMTP. The app reports whether the email service accepted the message, which is not a guarantee of inbox placement. If sending fails, the organiser can still share the private link securely. Invitation emails include the username and setup link, never learner boards or spoken messages.
 
 ## Pilot limits
 
-One adult owns each classroom. Multiple teachers sharing a school workspace, delegated classroom roles, self-service password recovery and billing are not implemented. Classroom hosting and invitations currently use SQLite; the optional PostgreSQL adapter supports personal backups only.
+One adult owns each classroom. Multiple teachers sharing a school workspace, delegated classroom roles and billing are not implemented. Public signup is an explicit hosted SQLite option with a configurable account limit. Classroom hosting and invitations currently use SQLite; the optional PostgreSQL adapter supports personal backups only.
 
 Use an individual adult account rather than a shared password. Store only the vocabulary and aliases needed for the pilot. There is no analytics or collection of what a learner says. Classroom drafts and publications intentionally live on the server; local communication boards stay on their device unless explicitly saved or exported.
 

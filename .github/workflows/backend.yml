@@ -25,9 +25,13 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - name: Check optional Google sign-in through the emitted server
         run: node tests/google-signin.browser.mjs
+      - name: Check self-service teacher workspaces through the emitted server
+        run: npm run test:teacher-self-service
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: google-signin-failure
+          name: authentication-browser-failure
           retention-days: 7
-          path: test-results/google-signin/
+          path: |
+            test-results/google-signin/
+            test-results/teacher-self-service/

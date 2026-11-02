@@ -31,13 +31,13 @@ export function sessionToken(request: Request, name: string): string | null {
   const token = values[0].slice(name.length + 1);
   return /^[a-f0-9]{64}$/.test(token) ? token : null;
 }
-export async function body(request: Request): Promise<unknown> {
+export async function body(request: Request, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   if (
     request.headers.get("content-type")?.split(";")[0].trim() !==
     "application/json"
   )
     throw new HttpError(415, "json_required");
-  if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES)
+  if (Number(request.headers.get("content-length")) > maxBytes)
     throw new HttpError(413, "body_too_large");
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, "invalid_json");
@@ -48,7 +48,7 @@ export async function body(request: Request): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
         await reader.cancel();
         throw new HttpError(413, "body_too_large");
       }

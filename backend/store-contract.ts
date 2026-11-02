@@ -3,6 +3,8 @@ import type { ClassroomStore } from "./classroom-contract.js";
 import type { OnboardingStore } from "./onboarding.js";
 import type { GoogleStore } from "./google-store.js";
 
+import type { SelfServiceStore } from "./self-service.js";
+
 export type Account = {
   id: string;
   username: string;
@@ -16,6 +18,7 @@ export interface Store {
   readonly classrooms?: ClassroomStore;
   readonly onboarding?: OnboardingStore;
   readonly google?: GoogleStore;
+  readonly selfService?: SelfServiceStore;
   account(username: string): Promise<Account | null>;
   session(hash: string, now: number): Promise<Session | null>;
   createSession(
@@ -23,6 +26,12 @@ export interface Store {
     accountId: string,
     expiresAt: number,
   ): Promise<void>;
+  createPasswordSession(
+    hash: string,
+    accountId: string,
+    verifiedPasswordHash: string,
+    expiresAt: number,
+  ): Promise<boolean>;
   deleteSession(hash: string): Promise<void>;
   board(accountId: string): Promise<SavedBoard | null>;
   saveBoard(

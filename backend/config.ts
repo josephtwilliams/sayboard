@@ -11,6 +11,8 @@ export type HostedConfig = {
   kind: "hosted";
   origin: string;
   passwordConcurrency?: 1 | 2;
+  signupEnabled?: boolean;
+  publicAccountLimit?: number;
 };
 export type ApiConfig = LocalConfig | HostedConfig;
 
@@ -46,8 +48,19 @@ export function hostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
   const passwordConcurrency = env.SAYBOARD_PASSWORD_CONCURRENCY ?? "2";
   if (passwordConcurrency !== "1" && passwordConcurrency !== "2")
     throw new Error("Password concurrency must be 1 or 2");
+  const signup = env.SAYBOARD_SIGNUP_ENABLED ?? "0";
+  const capacity = env.SAYBOARD_PUBLIC_ACCOUNT_LIMIT ?? "100";
+  if (
+    !["0", "1"].includes(signup) ||
+    (signup === "1" && env.SAYBOARD_STORAGE !== "sqlite") ||
+    !/^[1-9][0-9]*$/.test(capacity) ||
+    !Number.isSafeInteger(Number(capacity))
+  )
+    throw new Error("Invalid self-service configuration");
   return {
     kind: "hosted",
+    signupEnabled: signup === "1",
+    publicAccountLimit: Number(capacity),
     origin: url.origin,
     passwordConcurrency: passwordConcurrency === "1" ? 1 : 2,
   };

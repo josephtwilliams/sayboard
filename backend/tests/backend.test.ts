@@ -91,7 +91,11 @@ describe("local-only configuration", () => {
     const api = await createApi(store(), config);
     const response = await api(request("/api/auth/capabilities"), peer);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ state: "enabled" });
+    expect(await response.json()).toEqual({
+      state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
+    });
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(
       (await api(request("/api/auth/capabilities"), "203.0.113.10")).status,
@@ -182,6 +186,7 @@ describe("passwords and authentication", () => {
     );
     expect(await response.json()).toEqual({
       account: { username: "admin" },
+      recoveryEligible: false,
       csrfToken: headers["x-csrf-token"],
       expiresAt: 1_000_000 + SESSION_SECONDS * 1000,
     });

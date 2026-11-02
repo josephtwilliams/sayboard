@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { hashPassword } from "./password.js";
 import { SqliteClassrooms } from "./classroom-store.js";
 import { SqliteOnboarding } from "./onboarding.js";
+import { SqliteSelfService, invalidateCredentials } from "./self-service.js";
 import { SqliteGoogleStore } from "./google-store.js";
 
 import type { Account, Session, SavedBoard, Store } from "./store-contract.js";
@@ -15,6 +16,7 @@ export class SqliteStore implements Store {
   readonly classrooms: SqliteClassrooms;
   readonly onboarding: SqliteOnboarding;
   readonly google: SqliteGoogleStore;
+  readonly selfService: SqliteSelfService;
   constructor(path: string) {
     if (path !== ":memory:")
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -45,6 +47,7 @@ export class SqliteStore implements Store {
     this.classrooms = new SqliteClassrooms(this.db);
     this.onboarding = new SqliteOnboarding(this.db);
     this.google = new SqliteGoogleStore(this.db);
+    this.selfService = new SqliteSelfService(this.db);
   }
   close() {
     this.db.close();
@@ -82,9 +85,7 @@ export class SqliteStore implements Store {
       this.db
         .prepare("UPDATE accounts SET password_hash = ? WHERE id = ?")
         .run(hash, account.id);
-      this.db
-        .prepare("DELETE FROM sessions WHERE account_id = ?")
-        .run(account.id);
+      invalidateCredentials(this.db, account.id);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -139,6 +140,21 @@ export class SqliteStore implements Store {
       .prepare("INSERT INTO sessions VALUES (?, ?, ?)")
       .run(hash, accountId, expiresAt);
   }
+  async createPasswordSession(
+    hash: string,
+    accountId: string,
+    verifiedPasswordHash: string,
+    expiresAt: number,
+  ): Promise<boolean> {
+    return (
+      this.db
+        .prepare(
+          `INSERT INTO sessions SELECT ?, id, ? FROM accounts
+      WHERE id=? AND password_hash=?`,
+        )
+        .run(hash, expiresAt, accountId, verifiedPasswordHash).changes === 1
+    );
+  }
   async deleteSession(hash: string): Promise<void> {
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hash);
   }
@@ -176,7 +192,7 @@ export class SqliteStore implements Store {
     const row = this.db
       .prepare(
         `INSERT INTO login_limits VALUES (?, 1, ?)
-      ON CONFLICT(key) DO UPDATE SET count = count + 1 RETURNING count`,
+      ON CONFLICT(key) DO UPDATE SET count = min(count + 1, 11) RETURNING count`,
       )
       .get(key, now + 5 * 60_000);
     return !!row && typeof row.count === "number" && row.count <= 10;

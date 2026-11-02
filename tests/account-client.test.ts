@@ -6,6 +6,7 @@ const sessionResponse = {
   account: { username: "caregiver-test" },
   csrfToken: "csrf-test-only",
   expiresAt: 2_000_000_000,
+  recoveryEligible: false,
 };
 
 function json(value: unknown, status = 200): Response {
@@ -88,7 +89,7 @@ describe("same-origin account client contract", () => {
     const pending = deferredResponse();
     const { client, calls } = fixture(
       pending.promise,
-      json({ state: "enabled" }),
+      json({ state: "enabled", signupEnabled: false, recoveryEnabled: false }),
       json(sessionResponse),
     );
     const checks = [client.checkAvailability(), client.checkAvailability()];
@@ -100,6 +101,8 @@ describe("same-origin account client contract", () => {
     ]);
     await expect(client.checkAvailability({ refresh: true })).resolves.toEqual({
       state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
     });
     await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
     expect(calls.map((call) => call.path)).toEqual([
@@ -111,7 +114,7 @@ describe("same-origin account client contract", () => {
 
   it("clears an existing session when an explicit recheck finds accounts disabled", async () => {
     const { client, calls } = fixture(
-      json({ state: "enabled" }),
+      json({ state: "enabled", signupEnabled: false, recoveryEnabled: false }),
       json(sessionResponse),
       json({ state: "disabled" }),
     );
@@ -127,7 +130,7 @@ describe("same-origin account client contract", () => {
 
   it("keeps configured account outages as failures, without caching them as disabled", async () => {
     const { client, calls } = fixture(
-      json({ state: "enabled" }),
+      json({ state: "enabled", signupEnabled: false, recoveryEnabled: false }),
       json({ error: "storage_unavailable" }, 503),
       json(sessionResponse),
     );
@@ -136,9 +139,15 @@ describe("same-origin account client contract", () => {
       status: 503,
       message: expect.stringContaining("unavailable"),
     });
-    expect(client.currentAvailability()).toEqual({ state: "enabled" });
+    expect(client.currentAvailability()).toEqual({
+      state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
+    });
     await expect(client.checkAvailability()).resolves.toEqual({
       state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
     });
     await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
     expect(calls).toHaveLength(3);
@@ -149,7 +158,11 @@ describe("same-origin account client contract", () => {
     async (status) => {
       const { client, calls } = fixture(
         json({ error: "auth_unconfigured" }, status),
-        json({ state: "enabled" }),
+        json({
+          state: "enabled",
+          signupEnabled: false,
+          recoveryEnabled: false,
+        }),
       );
       await expect(client.checkAvailability()).rejects.toMatchObject({
         status,
@@ -157,6 +170,8 @@ describe("same-origin account client contract", () => {
       expect(client.currentAvailability()).toBeNull();
       await expect(client.checkAvailability()).resolves.toEqual({
         state: "enabled",
+        signupEnabled: false,
+        recoveryEnabled: false,
       });
       expect(calls).toHaveLength(2);
     },
@@ -588,5 +603,36 @@ describe("same-origin account client contract", () => {
     await expect(client.restoreSession()).rejects.toBeInstanceOf(AccountError);
     await expect(client.restoreSession()).rejects.toMatchObject({ status: 0 });
     expect(client.currentSession()).toBeNull();
+  });
+});
+
+describe("teacher self-service client", () => {
+  it("defaults missing capability fields to false", async () => {
+    const { client } = fixture(
+      json({ state: "enabled" }),
+      json({ ...sessionResponse, recoveryEligible: undefined }),
+    );
+    expect(await client.checkAvailability()).toEqual({
+      state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
+    });
+    expect((await client.restoreSession())?.recoveryEligible).toBe(false);
+  });
+  it("enters an authenticated workspace and returns a transient kit without a second login", async () => {
+    const code = "a".repeat(64);
+    const { client, calls } = fixture(
+      json({ ...sessionResponse, recoveryEligible: true, recoveryCode: code }),
+    );
+    expect(
+      await client.enterWorkspace({
+        kind: "register",
+        username: "teacher",
+        password: "synthetic sufficient password",
+      }),
+    ).toEqual({ username: "caregiver-test", recoveryCode: code });
+    expect(client.currentSession()?.recoveryEligible).toBe(true);
+    expect(JSON.stringify(client.currentSession())).not.toContain(code);
+    expect(calls.map((call) => call.path)).toEqual(["/api/auth/register"]);
   });
 });

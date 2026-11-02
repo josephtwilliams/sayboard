@@ -134,6 +134,8 @@ describe("hosted HTTPS boundary", () => {
       kind: "hosted",
       origin,
       passwordConcurrency: 2,
+      signupEnabled: false,
+      publicAccountLimit: 100,
     });
     expect(
       hostedConfig({ ...env(), SAYBOARD_PASSWORD_CONCURRENCY: "1" })
@@ -371,6 +373,7 @@ describe("hosted HTTPS boundary", () => {
       const faulty: Store = {
         account: async () => account,
         session: async () => ({ account, expiresAt: clock + 1000 }),
+        createPasswordSession: async () => true,
         createSession: vi.fn(),
         deleteSession: vi.fn(),
         board: vi.fn(),
@@ -410,6 +413,7 @@ describe("hosted HTTPS boundary", () => {
     };
     const api = createHostedHandler(env(), async () => ({
       session: async () => null,
+      createPasswordSession: async () => true,
       createSession: vi.fn(),
       deleteSession: vi.fn(),
       board: vi.fn(),

@@ -544,3 +544,12 @@
 .teacher-publication > p {
   margin-bottom: 0;
 }
+
+.teacher-recovery-code {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  font: inherit;
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+}

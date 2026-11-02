@@ -27,7 +27,11 @@ describe("hosted account configuration discovery", () => {
         SAYBOARD_AUTH_ENABLED: flag,
       })(request());
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ state: "disabled" });
+      expect(await response.json()).toEqual({
+        state: "disabled",
+        signupEnabled: false,
+        recoveryEnabled: false,
+      });
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("set-cookie")).toBeNull();
     },
@@ -35,7 +39,11 @@ describe("hosted account configuration discovery", () => {
 
   it.each([
     { ...configured, DATABASE_URL: "" },
-    { ...configured, SAYBOARD_STORAGE: "sqlite", SAYBOARD_DATABASE_PATH: "relative-path" },
+    {
+      ...configured,
+      SAYBOARD_STORAGE: "sqlite",
+      SAYBOARD_DATABASE_PATH: "relative-path",
+    },
     { ...configured, SAYBOARD_ORIGIN: "http://localhost" },
     { ...configured, SAYBOARD_AUTH_ENABLED: "true" },
     { ...runtime, NODE_ENV: "development" },
@@ -56,6 +64,8 @@ describe("hosted account configuration discovery", () => {
     const accounts = createHostedHandler(configured, getStore);
     expect(await (await capabilities(request())).json()).toEqual({
       state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
     });
     expect(getStore).not.toHaveBeenCalled();
     const response = await accounts(
@@ -70,6 +80,8 @@ describe("hosted account configuration discovery", () => {
     expect(getStore).toHaveBeenCalledOnce();
     expect(await (await capabilities(request())).json()).toEqual({
       state: "enabled",
+      signupEnabled: false,
+      recoveryEnabled: false,
     });
     expect(sink).toHaveBeenCalledExactlyOnceWith(
       '{"event":"hosted_handler_failed"}',

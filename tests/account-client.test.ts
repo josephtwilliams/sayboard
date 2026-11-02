@@ -7,6 +7,7 @@ const sessionResponse = {
   csrfToken: "csrf-test-only",
   expiresAt: 2_000_000_000,
   recoveryEligible: false,
+  verifiedEmail: null,
 };
 
 function json(value: unknown, status = 200): Response {
@@ -103,6 +104,8 @@ describe("same-origin account client contract", () => {
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unavailable",
     });
     await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
     expect(calls.map((call) => call.path)).toEqual([
@@ -143,11 +146,15 @@ describe("same-origin account client contract", () => {
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unavailable",
     });
     await expect(client.checkAvailability()).resolves.toEqual({
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unavailable",
     });
     await expect(client.restoreSession()).resolves.toEqual(sessionResponse);
     expect(calls).toHaveLength(3);
@@ -162,6 +169,8 @@ describe("same-origin account client contract", () => {
           state: "enabled",
           signupEnabled: false,
           recoveryEnabled: false,
+          signupMode: "username",
+          emailAvailability: "unavailable",
         }),
       );
       await expect(client.checkAvailability()).rejects.toMatchObject({
@@ -172,6 +181,8 @@ describe("same-origin account client contract", () => {
         state: "enabled",
         signupEnabled: false,
         recoveryEnabled: false,
+        signupMode: "username",
+        emailAvailability: "unavailable",
       });
       expect(calls).toHaveLength(2);
     },
@@ -616,6 +627,8 @@ describe("teacher self-service client", () => {
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unavailable",
     });
     expect((await client.restoreSession())?.recoveryEligible).toBe(false);
   });
@@ -634,5 +647,55 @@ describe("teacher self-service client", () => {
     expect(client.currentSession()?.recoveryEligible).toBe(true);
     expect(JSON.stringify(client.currentSession())).not.toContain(code);
     expect(calls.map((call) => call.path)).toEqual(["/api/auth/register"]);
+  });
+});
+
+it("keeps email proofs transient and authenticates completion without requiring a kit", async () => {
+  const { client, calls } = fixture(
+    json({ kind: "requested", retryAfterSeconds: 60 }, 202),
+    json({ kind: "signup", email: "synthetic@example.test" }),
+    json(sessionResponse),
+  );
+  await client.requestEmail("signup", "synthetic@example.test");
+  expect(client.currentSession()).toBeNull();
+  expect(await client.inspectEmail("synthetic-proof")).toEqual({
+    kind: "signup",
+    email: "synthetic@example.test",
+  });
+  await client.completeEmail("signup", "synthetic-proof", "synthetic password");
+  expect(client.currentSession()).toEqual(sessionResponse);
+  expect(calls.map((call) => call.path)).toEqual([
+    "/api/auth/email/request",
+    "/api/auth/email/inspect",
+    "/api/auth/email/complete",
+  ]);
+  expect(calls.every((call) => call.options?.method === "POST")).toBe(true);
+});
+it("requires a session for email linking and sends CSRF at both mutations", async () => {
+  const { client, calls } = fixture(
+    json(sessionResponse),
+    json({ kind: "requested" }),
+    json({ kind: "linked" }),
+  );
+  await expect(
+    client.requestEmail("link", "synthetic@example.test"),
+  ).rejects.toMatchObject({ status: 401 });
+  expect(calls).toHaveLength(0);
+  await client.login("legacy", "synthetic password");
+  await client.requestEmail("link", "synthetic@example.test");
+  await client.completeEmail("link", "synthetic-proof", "synthetic password");
+  for (const call of calls.slice(1))
+    expect(call.options?.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-CSRF-Token": sessionResponse.csrfToken,
+    });
+  expect(client.currentSession()).toEqual(sessionResponse);
+});
+it("rejects malformed mailbox inspection responses", async () => {
+  const { client } = fixture(
+    json({ kind: "link", email: "synthetic@example.test" }),
+  );
+  await expect(client.inspectEmail("synthetic-proof")).rejects.toMatchObject({
+    status: 502,
   });
 });

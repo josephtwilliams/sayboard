@@ -1,14 +1,26 @@
 import { parseBoard, serializeBoard, type Board } from "./board";
+import type {
+  EmailPurpose,
+  EmailInspection,
+  EmailAvailability,
+} from "./email-contract";
 export type AccountSession = {
   account: { username: string };
   csrfToken: string;
   expiresAt: number;
   recoveryEligible: boolean;
+  verifiedEmail: string | null;
 };
 export type AccountBoard = { board: Board | null; revision: number };
 export type AccountAvailability =
   | { state: "disabled" }
-  | { state: "enabled"; signupEnabled: boolean; recoveryEnabled: boolean };
+  | {
+      state: "enabled";
+      signupEnabled: boolean;
+      recoveryEnabled: boolean;
+      signupMode: "username" | "verified-email";
+      emailAvailability: EmailAvailability;
+    };
 export type RecoveryKit = { username: string; recoveryCode: string };
 export const disabledAccountMessage =
   "Account backup is not enabled on this host. You can keep using and saving your board on this device.";
@@ -43,6 +55,8 @@ function parseSession(value: unknown): AccountSession {
     csrfToken: value.csrfToken,
     expiresAt: value.expiresAt,
     recoveryEligible: value.recoveryEligible === true,
+    verifiedEmail:
+      typeof value.verifiedEmail === "string" ? value.verifiedEmail : null,
   };
 }
 function parseAccountBoard(value: unknown): AccountBoard {
@@ -115,6 +129,11 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
           ? failure.error
           : "";
       const selfServiceMessages: Record<string, string> = {
+        invalid_email: "Enter a valid email address.",
+        email_unconfigured:
+          "Email delivery is unavailable on this host. You can still sign in or use your recovery kit.",
+        email_link_unavailable:
+          "This link is expired, used, or unavailable for this account. Sign in or request another email.",
         username_unavailable:
           "That username is unavailable. Choose another username or sign in.",
         reserved_username: "Choose a different teacher username.",
@@ -196,6 +215,16 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
             state: "enabled",
             signupEnabled: value.signupEnabled === true,
             recoveryEnabled: value.recoveryEnabled === true,
+            signupMode:
+              value.signupMode === "verified-email"
+                ? "verified-email"
+                : "username",
+            emailAvailability:
+              value.emailAvailability === "ready"
+                ? "ready"
+                : value.emailAvailability === "unsupported"
+                  ? "unsupported"
+                  : "unavailable",
           };
         }
         return availability;
@@ -238,6 +267,72 @@ export function createAccountClient(fetcher: typeof fetch = fetch) {
           }),
         );
         return session;
+      });
+    },
+    async requestEmail(kind: EmailPurpose, email: string): Promise<void> {
+      return operation(async () => {
+        const result = await request(
+          kind === "link" ? "/api/auth/email/link" : "/api/auth/email/request",
+          {
+            method: "POST",
+            headers:
+              kind === "link"
+                ? mutationHeaders()
+                : { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind, email }),
+          },
+        );
+        if (!object(result) || result.kind !== "requested")
+          throw new AccountError(
+            502,
+            "The email request response was invalid.",
+          );
+      });
+    },
+    async inspectEmail(token: string): Promise<EmailInspection> {
+      return operation(async () => {
+        const value = await request("/api/auth/email/inspect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        if (object(value)) {
+          if (value.kind === "unavailable") return { kind: "unavailable" };
+          if (typeof value.email === "string") {
+            if (value.kind === "signup" || value.kind === "reset")
+              return { kind: value.kind, email: value.email };
+            if (value.kind === "link" && typeof value.username === "string")
+              return {
+                kind: "link",
+                email: value.email,
+                username: value.username,
+              };
+          }
+        }
+        throw new AccountError(502, "The email link response was invalid.");
+      });
+    },
+    async completeEmail(
+      kind: EmailPurpose,
+      token: string,
+      password: string,
+    ): Promise<void> {
+      return operation(async () => {
+        const value = await request("/api/auth/email/complete", {
+          method: "POST",
+          headers:
+            kind === "link"
+              ? mutationHeaders()
+              : { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, token, password }),
+        });
+        if (kind === "link") {
+          if (!object(value) || value.kind !== "linked")
+            throw new AccountError(
+              502,
+              "The email confirmation response was invalid.",
+            );
+        } else session = parseSession(value);
       });
     },
     async enterWorkspace(

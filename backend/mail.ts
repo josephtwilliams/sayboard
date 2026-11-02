@@ -2,8 +2,15 @@ import nodemailer from "nodemailer";
 import type { Invitation } from "./onboarding.js";
 
 export type InvitationMail = Invitation & { to: string; url: string };
+export type AccountMail = {
+  kind: "email";
+  purpose: "signup" | "reset" | "link";
+  to: string;
+  url: string;
+  expiresAt: number;
+};
 export interface Mailer {
-  send(message: InvitationMail): Promise<void>;
+  send(message: InvitationMail | AccountMail): Promise<void>;
   verify(): Promise<void>;
 }
 export function emailAddress(value: unknown): string {
@@ -51,6 +58,30 @@ export function invitationMessage(message: InvitationMail) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title></head><body style="margin:0;background:#f6f6ef;color:#193d35;font:16px/1.6 Arial,sans-serif"><main style="max-width:560px;margin:32px auto;padding:32px;background:#fffefa;border:1px solid #c4d0c5;border-radius:16px"><p style="font-weight:bold">sayboard</p><h1 style="font-size:28px;line-height:1.2">${title}</h1><p>${intro}</p><p>Teacher username: <strong>${escape(message.username)}</strong></p><p><a href="${escape(message.url)}" style="display:inline-block;padding:14px 20px;border-radius:8px;background:#1f5144;color:white;text-decoration:none;font-weight:bold">${action}</a></p><p>This private link works once and expires ${expiry}.</p><p style="font-size:14px">If you were not expecting this email, ignore it and contact your pilot organiser through your usual channel.</p><p style="font-size:14px">This email contains no learner boards or speech history.</p></main></body></html>`;
   return { subject: title, text, html };
 }
+export function accountMessage(message: AccountMail) {
+  const title = {
+    signup: "Create your Sayboard workspace",
+    reset: "Recover your Sayboard workspace",
+    link: "Add your Sayboard recovery email",
+  }[message.purpose];
+  const intro =
+    message.purpose === "link"
+      ? "Sign in to the teacher account shown on the page and confirm its current password to add this email."
+      : "Open this link to continue if this action is available for your email address.";
+  const expiry = new Date(message.expiresAt).toUTCString();
+  return {
+    subject: title,
+    text: `${title}\n\n${intro}\n\n${message.url}\n\nThis private link expires ${expiry}. If you did not request it, ignore this email.\n`,
+    html: `<!doctype html><html lang="en"><body><h1>${title}</h1><p>${intro}</p><p><a href="${escape(message.url)}">Continue to Sayboard</a></p><p>This private link expires ${expiry}. If you did not request it, ignore this email.</p></body></html>`,
+  };
+}
+export function configuredMailer(env: NodeJS.ProcessEnv): Mailer | null {
+  try {
+    return smtpMailer(env);
+  } catch {
+    return null;
+  }
+}
 export function smtpMailer(env: NodeJS.ProcessEnv): Mailer | null {
   const host = env.SAYBOARD_SMTP_HOST;
   if (!host) return null;
@@ -92,7 +123,9 @@ export function smtpMailer(env: NodeJS.ProcessEnv): Mailer | null {
           from: { name: "Sayboard", address: from },
           replyTo,
           to: emailAddress(message.to),
-          ...invitationMessage(message),
+          ...(message.kind === "email"
+            ? accountMessage(message)
+            : invitationMessage(message)),
         });
         if (result.rejected.length || !result.accepted.length)
           throw new Error("Email was not accepted");

@@ -135,6 +135,7 @@ describe("hosted HTTPS boundary", () => {
       origin,
       passwordConcurrency: 2,
       signupEnabled: false,
+      teacherAccountMode: "username",
       publicAccountLimit: 100,
     });
     expect(

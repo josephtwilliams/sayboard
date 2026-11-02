@@ -67,11 +67,25 @@ Optional [Google teacher sign-in](GOOGLE-SIGN-IN.md) lets adults start without c
 
 ### Enable teacher self-service
 
-For the hosted SQLite installation, set `SAYBOARD_SIGNUP_ENABLED=1` alongside `SAYBOARD_AUTH_ENABLED=1`, then recreate the app and proxy. Teachers can choose **Create teacher workspace** at `/teacher`, choose a username and password, and save their recovery kit before creating a classroom. No invitation, email provider or Google credentials are required.
+For the hosted SQLite installation, set `SAYBOARD_SIGNUP_ENABLED=1` alongside `SAYBOARD_AUTH_ENABLED=1`, then recreate the app and proxy. With the default `SAYBOARD_TEACHER_ACCOUNT_MODE=username`, teachers can choose **Sign up** at `/teacher`, choose a username and password, and save their recovery kit before creating a classroom. No invitation, email provider or Google credentials are required.
 
 Set `SAYBOARD_PUBLIC_ACCOUNT_LIMIT` to the maximum current public accounts you want to support. The default is 100. This is an operational ceiling, not a measured capacity guarantee. Password resets do not release a place; deleting an account does. The host limits public credential requests to 10 per peer and 100 across the host per five-minute window. Existing board storage limits still apply.
 
 Setting `SAYBOARD_SIGNUP_ENABLED=0` stops new public accounts while existing sign-in and code recovery keep working. Teachers can replace their recovery code from **Recovery kit** after confirming their current password. A recovery code works once, revokes other teacher sessions and is replaced with a new code. Learner links and published boards stay in place. If a teacher loses both their password and code, use the administrator reset procedure above. Google accounts use Google's recovery process. Operators use administrator resets.
+
+### Enable verified-email signup
+
+Configure standard SMTP as described below. Set `SAYBOARD_TEACHER_ACCOUNT_MODE=verified-email` and `SAYBOARD_SIGNUP_ENABLED=1`, then recreate the app and proxy. New teachers enter an email address, open the emailed link, and choose a password. Their account is created only after they complete that step. They do not need a username or a recovery kit.
+
+Existing teachers keep their usernames and classrooms. Ordinary password accounts can choose **Add recovery email**, open the email, and confirm their current password. The confirmation page names the account and email. Sign in to that same account if you open the link on another device. This version supports adding the first email only. It does not change emails, merge accounts, or link Google identities.
+
+A verified email works as a sign-in identifier. **Forgot password?** sends a link that lets the mailbox owner choose a new password and enter the workspace. Reset revokes prior teacher sessions and recovery codes. Classrooms and learner devices remain in place. **Recovery kit** remains an optional extra for email accounts.
+
+Addresses use the existing ASCII email syntax and are trimmed and lowercased. Dots and plus tags are preserved. Links expire after 30 minutes. Each recipient can receive up to three messages per hour across signup, reset, and linking, with at least 60 seconds between requests. Earlier links remain valid until completion or expiry. Delivery failure does not refund the send budget because SMTP may already have accepted the message.
+
+Missing or invalid SMTP configuration closes verified-email signup. It never falls back to username registration. Existing sign-in and recovery kits remain available. Setting `SAYBOARD_SIGNUP_ENABLED=0` closes public signup while email reset and first-email linking remain available when SMTP is configured. PostgreSQL does not support email self-service.
+
+For local verification, build the app and server, install Playwright Chromium and WebKit, then run `npm run test:teacher-email`. The harness runs an emitted Node server and a loopback SMTP fixture with a trusted test certificate. It sends only synthetic local traffic and needs no provider credentials. See [the email lifecycle rationale](EMAIL-ACCOUNTS.md) for transactional guarantees and limits.
 
 ### Invitations and email
 

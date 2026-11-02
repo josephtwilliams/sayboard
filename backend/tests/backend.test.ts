@@ -95,6 +95,8 @@ describe("local-only configuration", () => {
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unavailable",
     });
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(
@@ -187,6 +189,7 @@ describe("passwords and authentication", () => {
     expect(await response.json()).toEqual({
       account: { username: "admin" },
       recoveryEligible: false,
+      verifiedEmail: null,
       csrfToken: headers["x-csrf-token"],
       expiresAt: 1_000_000 + SESSION_SECONDS * 1000,
     });

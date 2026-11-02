@@ -1,3 +1,4 @@
+import { teacherEmail, type TeacherEmailState } from "./teacher-email";
 import { teacherEntry, type TeacherEntryState } from "./teacher-entry";
 import { createDirectBoardEditor } from "./direct-board-editor";
 import { createThemeToggle } from "./theme-toggle";
@@ -31,8 +32,10 @@ import { mountGoogleSignIn, googleSignInNotice } from "./google-signin";
 const root = document.querySelector<HTMLDivElement>("#teacher-app");
 if (!root) throw new Error("Missing teacher workspace");
 let signedIn = false;
-let entryState: TeacherEntryState = { kind: "signin" };
+let entryState: TeacherEntryState | TeacherEmailState = { kind: "signin" };
 let signupEnabled = false;
+let emailMode = false;
+let emailReady = false;
 let recoveryEnabled = false;
 let serviceDisabled = false;
 let operator = false;
@@ -566,6 +569,29 @@ function render() {
         render();
       }),
     );
+  if (
+    signedIn &&
+    emailReady &&
+    accountClient.currentSession()?.recoveryEligible
+  ) {
+    const email = accountClient.currentSession()?.verifiedEmail;
+    navigation.append(
+      email
+        ? el(
+            "span",
+            "teacher-muted teacher-email-setting",
+            `Recovery email: ${email}`,
+          )
+        : button(
+            "Add recovery email",
+            () => {
+              entryState = { kind: "email-request", purpose: "link" };
+              render();
+            },
+            "button teacher-email-setting",
+          ),
+    );
+  }
   header.append(brand, navigation);
   shell.append(header);
   const status = el(
@@ -575,7 +601,36 @@ function render() {
   );
   status.role = "status";
   status.setAttribute("aria-live", "polite");
-  if (entryState.kind !== "signin") {
+  if (
+    entryState.kind === "email-inspecting" ||
+    entryState.kind === "email-request" ||
+    entryState.kind === "email-sent" ||
+    entryState.kind === "email-proof"
+  ) {
+    shell.append(
+      teacherEmail(
+        entryState,
+        (work) => void perform(work),
+        (state) => {
+          entryState = state;
+          render();
+        },
+        async () => {
+          await accountClient.restoreSession();
+          signedIn = true;
+          entryState = { kind: "signin" };
+          rooms = await teacherClient.list();
+          operator = await canInvite();
+          notice = "Your workspace is ready.";
+        },
+        () => {
+          entryState = { kind: "signin" };
+          render();
+        },
+      ),
+      status,
+    );
+  } else if (entryState.kind !== "signin") {
     shell.append(
       teacherEntry(
         entryState,
@@ -625,7 +680,9 @@ function render() {
         button(
           "Sign up",
           () => {
-            entryState = { kind: "register" };
+            entryState = emailMode
+              ? { kind: "email-request", purpose: "signup" }
+              : { kind: "register" };
             notice = "Choose your teacher sign-in details.";
             render();
           },
@@ -634,11 +691,15 @@ function render() {
       );
     const login = el("form", "teacher-form");
     if (!serviceDisabled) mountGoogleSignIn(card);
-    const usernameLabel = el("label", "", "Teacher username");
+    const usernameLabel = el(
+      "label",
+      "",
+      emailReady || emailMode ? "Email or username" : "Teacher username",
+    );
     const username = el("input");
     username.autocomplete = "username";
     username.required = true;
-    username.maxLength = 64;
+    username.maxLength = 254;
     username.autocapitalize = "none";
     username.spellcheck = false;
     username.value = fieldValues.get("login-username") ?? "";
@@ -676,6 +737,21 @@ function render() {
           : "Need a password reset? Contact your Sayboard administrator. Student accounts and email addresses are not required.",
       ),
     );
+    if (!serviceDisabled && emailReady)
+      card.append(
+        button("Forgot password?", () => {
+          entryState = { kind: "email-request", purpose: "reset" };
+          render();
+        }),
+      );
+    if (!serviceDisabled && emailMode && !emailReady)
+      card.append(
+        el(
+          "p",
+          "teacher-muted",
+          "Email delivery is unavailable. You can still sign in or use a recovery kit.",
+        ),
+      );
     if (!serviceDisabled && recoveryEnabled)
       card.append(
         button("Recover workspace", () => {
@@ -1202,7 +1278,11 @@ document.addEventListener("visibilitychange", () => {
 });
 function handleLocationChange() {
   entryState = { kind: "signin" };
-  if (new URLSearchParams(location.hash.slice(1)).has("activate")) {
+  if (
+    ["activate", "email"].some((key) =>
+      new URLSearchParams(location.hash.slice(1)).has(key),
+    )
+  ) {
     location.reload();
     return;
   }
@@ -1229,6 +1309,11 @@ window.addEventListener("pagehide", () => {
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) location.reload();
 });
+let emailProof = new URLSearchParams(location.hash.slice(1)).get("email");
+if (emailProof !== null) {
+  history.replaceState(null, "", location.pathname);
+  entryState = { kind: "email-inspecting" };
+}
 const activation = new URLSearchParams(location.hash.slice(1)).get("activate");
 const googleNotice = googleSignInNotice();
 if (activation !== null) {
@@ -1250,7 +1335,18 @@ if (activation !== null) {
     }
     signupEnabled = availability.signupEnabled === true;
     recoveryEnabled = availability.recoveryEnabled === true;
+    emailMode = availability.signupMode === "verified-email";
+    emailReady = availability.emailAvailability === "ready";
     const session = await accountClient.restoreSession();
+    if (emailProof !== null) {
+      const token = emailProof;
+      emailProof = null;
+      const view = await accountClient.inspectEmail(token);
+      signedIn = session !== null;
+      entryState = { kind: "email-proof", token, view };
+      notice = "";
+      return;
+    }
     if (!session) {
       notice = googleNotice ?? "Sign in to open your classrooms.";
       errorNotice = googleNotice !== null;

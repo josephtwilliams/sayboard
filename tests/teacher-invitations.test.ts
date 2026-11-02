@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { usernamePattern } from "../src/teacher-invitations";
+import { usernamePattern } from "../src/username";
 
 describe("teacher invitation username field", () => {
   it("compiles as a browser pattern and matches the backend username rule", () => {

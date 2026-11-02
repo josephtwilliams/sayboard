@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:http";
+import { createServer, get } from "node:http";
 import { expect, it } from "vitest";
 import { startServer } from "../server.js";
 
@@ -19,7 +19,7 @@ async function availablePort() {
   return address.port;
 }
 
-it("refuses to start with incomplete email settings instead of disabling every account request", async () => {
+it("keeps the server available with broken optional mail while closing verified signup", async () => {
   const root = await mkdtemp(join(tmpdir(), "sayboard-startup-"));
   const staticDirectory = join(root, "dist");
   await mkdir(join(staticDirectory, "source"), { recursive: true });
@@ -33,6 +33,8 @@ it("refuses to start with incomplete email settings instead of disabling every a
   const env = async () => ({
     NODE_ENV: "production",
     SAYBOARD_AUTH_ENABLED: "1",
+    SAYBOARD_SIGNUP_ENABLED: "1",
+    SAYBOARD_TEACHER_ACCOUNT_MODE: "verified-email",
     SAYBOARD_STORAGE: "sqlite",
     SAYBOARD_DATABASE_PATH: join(root, "board.sqlite"),
     SAYBOARD_ORIGIN: "https://classroom.example.test",
@@ -44,22 +46,56 @@ it("refuses to start with incomplete email settings instead of disabling every a
     SAYBOARD_SMTP_PASSWORD: "synthetic",
   });
   try {
-    // A display-name sender is a common mistake; the address must be bare.
-    await expect(
-      startServer({
-        ...(await env()),
-        SAYBOARD_EMAIL_FROM: "Sayboard <accounts@example.test>",
-      }),
-    ).rejects.toThrow();
-    await expect(startServer(await env())).rejects.toThrow();
-    const server = await startServer({
-      ...(await env()),
-      SAYBOARD_EMAIL_FROM: "accounts@example.test",
-    });
-    server.closeIdleConnections();
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
+    for (const from of [
+      undefined,
+      "Sayboard <accounts@example.test>",
+      "accounts@example.test",
+    ]) {
+      const settings = { ...(await env()), SAYBOARD_EMAIL_FROM: from };
+      const server = await startServer(settings);
+      try {
+        const response = await new Promise<{
+          status: number | undefined;
+          body: string;
+        }>((resolve, reject) => {
+          get(
+            {
+              hostname: "127.0.0.1",
+              port: settings.SAYBOARD_PORT,
+              path: "/api/auth/capabilities",
+              headers: {
+                Host: "classroom.example.test",
+                "X-Forwarded-Proto": "https",
+              },
+            },
+            (incoming) => {
+              let body = "";
+              incoming.setEncoding("utf8");
+              incoming.on("data", (chunk) => {
+                body += chunk;
+              });
+              incoming.on("end", () =>
+                resolve({ status: incoming.statusCode, body }),
+              );
+            },
+          ).on("error", reject);
+        });
+        expect(response.status).toBe(200);
+        expect(JSON.parse(response.body)).toMatchObject({
+          state: "enabled",
+          signupEnabled: from === "accounts@example.test",
+          signupMode: "verified-email",
+          emailAvailability:
+            from === "accounts@example.test" ? "ready" : "unavailable",
+          recoveryEnabled: true,
+        });
+      } finally {
+        server.closeIdleConnections();
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -31,6 +31,8 @@ describe("hosted account configuration discovery", () => {
         state: "disabled",
         signupEnabled: false,
         recoveryEnabled: false,
+        signupMode: "username",
+        emailAvailability: "unsupported",
       });
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("set-cookie")).toBeNull();
@@ -66,6 +68,8 @@ describe("hosted account configuration discovery", () => {
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unsupported",
     });
     expect(getStore).not.toHaveBeenCalled();
     const response = await accounts(
@@ -82,6 +86,8 @@ describe("hosted account configuration discovery", () => {
       state: "enabled",
       signupEnabled: false,
       recoveryEnabled: false,
+      signupMode: "username",
+      emailAvailability: "unsupported",
     });
     expect(sink).toHaveBeenCalledExactlyOnceWith(
       '{"event":"hosted_handler_failed"}',

@@ -246,8 +246,27 @@ try {
     const username = "self_service_" + engine;
     await page.goto(origin + "/teacher");
     await page
-      .getByRole("button", { name: "Create teacher workspace", exact: true })
+      .getByRole("button", { name: "Sign up", exact: true })
       .waitFor();
+    for (const viewport of [
+      { width: 1280, height: 686 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(() => scrollTo(0, 0));
+      const signup = page.getByRole("button", { name: "Sign up", exact: true });
+      const bounds = await signup.boundingBox();
+      assert.ok(
+        bounds && bounds.y >= 0 && bounds.y + bounds.height <= viewport.height,
+        `${engine} ${viewport.width}x${viewport.height}: Sign up is visible without scrolling`,
+      );
+      await signup.click();
+      await page
+        .getByRole("heading", { name: "Create teacher workspace", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.evaluate(
       (value) => localStorage.setItem("sayboard-v2", JSON.stringify(value)),
       marker,
@@ -286,7 +305,7 @@ try {
       .getByRole("button", { name: "Save to teacher workspace", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Create teacher workspace", exact: true })
+      .getByRole("button", { name: "Sign up", exact: true })
       .click();
     assert.equal(
       await page.getByLabel("Teacher username", { exact: true }).count(),

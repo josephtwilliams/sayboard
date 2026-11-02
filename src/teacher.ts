@@ -611,7 +611,7 @@ function render() {
     );
     const card = el("section", "teacher-card teacher-login");
     card.append(
-      el("h2", "", "Teacher sign in"),
+      el("h2", "", signupEnabled ? "Teacher workspace" : "Teacher sign in"),
       el(
         "p",
         "",
@@ -620,6 +620,18 @@ function render() {
           : "Sign in with your existing account, or open your invitation to choose a password.",
       ),
     );
+    if (!serviceDisabled && signupEnabled)
+      card.append(
+        button(
+          "Sign up",
+          () => {
+            entryState = { kind: "register" };
+            notice = "Choose your teacher sign-in details.";
+            render();
+          },
+          "button primary",
+        ),
+      );
     const login = el("form", "teacher-form");
     if (!serviceDisabled) mountGoogleSignIn(card);
     const usernameLabel = el("label", "", "Teacher username");
@@ -664,18 +676,6 @@ function render() {
           : "Need a password reset? Contact your Sayboard administrator. Student accounts and email addresses are not required.",
       ),
     );
-    if (!serviceDisabled && signupEnabled)
-      card.append(
-        button(
-          "Create teacher workspace",
-          () => {
-            entryState = { kind: "register" };
-            notice = "Choose your teacher sign-in details.";
-            render();
-          },
-          "button primary",
-        ),
-      );
     if (!serviceDisabled && recoveryEnabled)
       card.append(
         button("Recover workspace", () => {
@@ -700,7 +700,7 @@ function render() {
       ),
     );
     const entry = el("div", "teacher-entry-grid");
-    entry.append(welcome, card);
+    entry.append(card, welcome);
     shell.append(entry, status);
   } else if (!room) {
     shell.append(

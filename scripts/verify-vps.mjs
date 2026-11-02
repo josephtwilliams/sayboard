@@ -151,8 +151,10 @@ try {
   };
   assert.deepEqual(await (await client.get("/api/auth/capabilities")).json(), {
     state: "enabled",
+    signupMode: "username",
     signupEnabled: false,
     recoveryEnabled: true,
+    emailAvailability: "unavailable",
   });
   assert.equal(
     (

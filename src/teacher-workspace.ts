@@ -47,10 +47,12 @@ export function createTeacherWorkspace({
   destinations.append(openBoard, createThemeToggle());
   const oldHeader = content.querySelector(".teacher-header");
   const accountActions = Array.from(
-    oldHeader?.querySelectorAll("button") ?? [],
+    oldHeader?.querySelectorAll("button, .teacher-email-setting") ?? [],
   ).filter(
     (node) =>
-      node.textContent === "Sign out" || node.textContent === "Recovery kit",
+      node.textContent === "Sign out" ||
+      node.textContent === "Recovery kit" ||
+      node.matches(".teacher-email-setting"),
   );
   destinations.append(...accountActions);
   oldHeader?.remove();

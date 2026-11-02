@@ -1,3 +1,4 @@
+import { usernamePattern } from "./username";
 import { createElement as el, createButton as button } from "./dom";
 import { accountClient } from "./account";
 import { record, text, integer } from "./classroom-contract";
@@ -44,10 +45,6 @@ async function request(
     );
   return response.json();
 }
-// Browsers compile pattern attributes with the v flag, which rejects an
-// unescaped "-" in a character class and then skips the check entirely.
-// Surrounding spaces, as in a pasted name, are trimmed before sending.
-export const usernamePattern = "\\s*[a-zA-Z0-9_\\-]+\\s*";
 export async function canInvite(): Promise<boolean> {
   return record(await request("/api/invitations")).operator === true;
 }

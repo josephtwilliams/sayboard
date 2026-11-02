@@ -1,3 +1,4 @@
+import { usernamePattern } from "./username";
 import { accountClient, type RecoveryKit } from "./account";
 import { createElement as el, createButton as button } from "./dom";
 
@@ -125,7 +126,7 @@ export function teacherEntry(
   const username = replacing
     ? null
     : field("Teacher username", "text", "username", 64);
-  if (username) username.pattern = "[a-zA-Z0-9_-]{1,64}";
+  if (username) username.pattern = usernamePattern;
   const recoveryCode = recovering
     ? field("Recovery code", "text", "off", 64)
     : null;

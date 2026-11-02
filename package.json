@@ -18,6 +18,7 @@
     "build:server": "node scripts/build-server.mjs",
     "start": "NODE_ENV=production SAYBOARD_SERVER_ENTRY=1 node server-dist/server.cjs",
     "account": "NODE_ENV=production node server-dist/manage.cjs",
+    "test:teacher-email": "node tests/teacher-email.browser.mjs",
     "test:teacher-self-service": "node tests/teacher-self-service.browser.mjs"
   },
   "devDependencies": {

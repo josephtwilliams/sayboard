@@ -27,6 +27,8 @@ jobs:
         run: node tests/google-signin.browser.mjs
       - name: Check self-service teacher workspaces through the emitted server
         run: npm run test:teacher-self-service
+      - name: Check teacher email with local TLS SMTP through the emitted server
+        run: npm run test:teacher-email
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -35,3 +37,4 @@ jobs:
           path: |
             test-results/google-signin/
             test-results/teacher-self-service/
+            test-results/teacher-email/
